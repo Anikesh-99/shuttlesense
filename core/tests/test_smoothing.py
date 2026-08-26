@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from shuttlesense_core.smoothing import probs_to_intervals, suppress_events
 
@@ -18,9 +19,12 @@ def test_nms_keeps_best_and_orders():
     out = suppress_events(ev, min_gap=8)
     assert [e["frame"] for e in out] == [104, 130]
 
-def test_intervals_empty_input_returns_empty_list():
+def test_intervals_all_below_threshold_returns_empty():
     p = np.zeros(200)
     assert probs_to_intervals(p, threshold=0.5, min_len=30, merge_gap=15) == []
+
+def test_intervals_genuinely_empty_array_returns_empty_list():
+    assert probs_to_intervals(np.array([])) == []
 
 def test_intervals_run_touching_array_end_is_closed_at_len():
     # A run that never drops below threshold before the array ends must be
@@ -62,13 +66,16 @@ def test_nms_drops_events_within_min_gap_and_preserves_extra_keys():
         {"frame": 100, "confidence": 0.5, "label": "smash"},
         {"frame": 105, "confidence": 0.5, "label": "clear"},  # tie in confidence
     ]
+    ev_before = copy.deepcopy(ev)
     out = suppress_events(ev, min_gap=8)
-    # Only one survives (within min_gap of the other); ties are resolved by
-    # the sort being stable-ish, but either way exactly one event remains
-    # and it must retain its extra "label" key unchanged.
+    # Tie-break is (-confidence, frame), so of the two tied-confidence
+    # events, the lower-frame one (100, "smash") wins deterministically.
     assert len(out) == 1
-    assert "label" in out[0]
-    assert out[0]["label"] == ev[[e["frame"] for e in ev].index(out[0]["frame"])]["label"]
+    assert out[0]["frame"] == 100
+    assert out[0]["label"] == "smash"
+    # The input list itself must be untouched (no mutation of the caller's
+    # dicts), even though the kept event in `out` aliases the input dict.
+    assert ev == ev_before
 
 def test_nms_gap_exactly_at_min_gap_boundary_both_kept():
     # suppression condition requires `abs(diff) >= min_gap` to keep; a gap
