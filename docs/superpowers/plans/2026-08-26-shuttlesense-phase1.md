@@ -299,7 +299,7 @@ def rally_frame_features(kpts_all: np.ndarray, scores_all: np.ndarray) -> np.nda
 **Interfaces:**
 - Produces (used by Tasks 8, 11, 15):
   - `probs_to_intervals(p: np.ndarray, threshold: float = 0.5, min_len: int = 30, merge_gap: int = 15) -> list[tuple[int, int]]` — per-frame play probabilities → merged `(start, end)` frame intervals (end exclusive).
-  - `suppress_events(events: list[dict], min_gap: int) -> list[dict]` — events have keys `frame:int, confidence:float`; greedy NMS keeping highest confidence, dropping any event within `min_gap` frames of a kept one; returns sorted by frame.
+  - `suppress_events(events: list[dict], min_gap: int) -> list[dict]` — events have keys `frame:int, confidence:float`; greedy NMS keeping highest confidence, dropping any event strictly closer than `min_gap` frames to a kept one (distance exactly `min_gap` survives); ties broken by `(-confidence, frame)` so results are input-order-independent; returns sorted by frame.
 
 - [ ] **Step 1: Write the failing tests** — `core/tests/test_smoothing.py`
 
