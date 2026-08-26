@@ -1,3 +1,30 @@
+"""Pose normalization and windowing features, shared by training and serving.
+
+Contracts (load-bearing for downstream tasks 8 and 15):
+
+- `normalize_pose`: hip-centers and torso-scales a single `(17,2)` COCO-17
+  pose so it is translation- and scale-invariant. Output is `(17,2)` float32.
+
+- `stroke_window`: builds a fixed-size `(WINDOW, FEAT_DIM)` = `(30, 68)`
+  float32 feature window around a center frame. Each row is
+  `[pos(34) | vel(34)]`, i.e. the first 34 columns are the frame's flattened
+  normalized `(17,2)` position and the last 34 are the frame-to-frame
+  velocity (difference from the previous row in the window; the first row's
+  velocity is 0). The window is *past-heavy*: it spans `w // 2` frames before
+  `center` through `w - w // 2` frames after (e.g. for w=30: 15 back, 15
+  forward, with `center` itself falling at window index `w // 2`).
+  Out-of-range frame indices (before frame 0 or past the last frame) clamp to
+  the nearest valid edge frame, so near a clip boundary multiple window rows
+  read the same source frame (constant position, zero velocity) until the
+  index enters the valid range.
+
+- `rally_frame_features`: for a `(T,2,17,2)` keypoints array and a
+  `(T,2,17)` confidence-scores array, returns `(T,4)` float32 with column
+  order `[energy_p0, energy_p1, conf_p0, conf_p1]`, where `energy_p*` is the
+  per-frame mean absolute frame-to-frame displacement of that player's
+  normalized keypoints (0.0 at frame 0, since there is no previous frame),
+  and `conf_p*` is that player's mean keypoint confidence for the frame.
+"""
 from __future__ import annotations
 import numpy as np
 
