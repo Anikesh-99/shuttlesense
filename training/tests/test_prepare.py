@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -51,9 +49,26 @@ def test_padding_applied_and_clamped_at_zero():
     raw = _raw()
     out = convert(raw, "m01", 30.0)
     r1 = out[out.hit_frame.isin([100, 130, 170])]
-    # PAD_BEFORE=15, PAD_AFTER=30 around first/last hit frame of the rally
-    assert r1["rally_start_frame"].iloc[0] == max(100 - 15, 0)
-    assert r1["rally_end_frame"].iloc[0] == 170 + 30
+    # PAD_BEFORE=15, PAD_AFTER=30 -- literal expected values, not a re-derivation of the
+    # padding formula under test.
+    assert r1["rally_start_frame"].iloc[0] == 85
+    assert r1["rally_end_frame"].iloc[0] == 200
+
+    # Rally whose first hit is close enough to frame 0 that naive padding (frame - 15) would
+    # go negative; rally_start_frame must clamp to 0, not -10.
+    early = pd.DataFrame({
+        "rally": [3, 3],
+        "ball_round": [1.0, 2.0],
+        "frame_num": [5.0, 40.0],
+        "player": ["B", "A"],
+        "type": ["發長球", "殺球"],
+        "getpoint_player": [np.nan, "A"],
+    })
+    raw_with_early = pd.concat([raw, early], ignore_index=True)
+    out2 = convert(raw_with_early, "m01", 30.0)
+    r3 = out2[out2.hit_frame.isin([5, 40])]
+    assert r3["rally_start_frame"].iloc[0] == 0
+    assert r3["rally_end_frame"].iloc[0] == 70  # 40 + PAD_AFTER(30), unaffected by clamping
 
 
 def test_unknown_stroke_raises():
@@ -70,7 +85,7 @@ def test_weizhi_qiuzhong_dropped_and_logged(capsys):
     assert 100 not in out["hit_frame"].values
     assert len(out) == 4  # 5 raw rows - 1 dropped
     captured = capsys.readouterr()
-    assert "1" in captured.err  # dropped-count logged to stderr
+    assert "dropped 1 " in captured.err  # exact dropped-count logged to stderr, not a loose "1"
 
 
 def test_winner_minus_one_when_getpoint_player_all_nan():
@@ -95,54 +110,98 @@ def test_stroke_map_covers_full_real_vocabulary():
     assert STROKE_MAP["後場抽平球"] == "drive"
 
 
+def test_convert_raises_on_non_ab_player_set():
+    raw = _raw()
+    raw.loc[0, "player"] = "C"  # a 3rd letter must not silently participate in a pmap
+    with pytest.raises(ValueError):
+        convert(raw, "m01", 30.0)
+
+
+def test_convert_raises_on_single_letter_player_set():
+    raw = _raw()
+    raw["player"] = "A"  # only one letter present -- must not silently default to id 0 for all
+    with pytest.raises(ValueError):
+        convert(raw, "m01", 30.0)
+
+
+def test_convert_raises_on_non_integer_frame_num():
+    raw = _raw()
+    raw.loc[0, "frame_num"] = 100.5
+    with pytest.raises(AssertionError):
+        convert(raw, "m01", 30.0)
+
+
 def _time_str(total_seconds: int) -> str:
     h, rem = divmod(total_seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def test_resolve_fps_snaps_truncated_seconds_to_25_not_25_01():
-    # Synthetic data reproducing the documented truncation-bias trap: `time` is floor-truncated
-    # to whole seconds while `frame_num` reflects the exact (fractional) elapsed time. A naive
-    # per-row ratio frame_num / seconds(time) would be biased high (~25.01+); the whole-match OLS
-    # slope must recover the true fps (25.0) and snap to it exactly.
-    true_fps = 25.0
-    frac = 0.6  # constant fractional-second offset baked into every "true" timestamp
-    xs = list(range(0, 3000, 7))  # truncated-second values actually stored in `time`
-    frame_nums = [true_fps * (x + frac) for x in xs]
-    df = pd.DataFrame({
-        "time": [_time_str(x) for x in xs],
+def _honest_truncation_df(true_fps: float, n: int, t_start: float, t_end: float,
+                           seed: int) -> pd.DataFrame:
+    """Simulate `n` stroke rows spread across [t_start, t_end) true elapsed seconds, each with
+    its OWN random fractional-second offset (not a single constant frac shared by every row --
+    that was an unrealistically clean noise model). `time` gets floor-truncated to whole
+    seconds (as the real dataset does); `frame_num` is the true, exact frame index. This is the
+    honest version of the documented truncation-bias trap: per-row ratios would each be biased
+    high by a different, row-specific amount, but the whole-match OLS slope should still recover
+    `true_fps` because the truncation noise is independent of the timestamp itself and averages
+    out across many rows."""
+    rng = np.random.default_rng(seed)
+    true_times = np.sort(rng.uniform(t_start, t_end, size=n))
+    frame_nums = np.round(true_fps * true_times)
+    truncated_seconds = np.floor(true_times).astype(int)
+    return pd.DataFrame({
+        "time": [_time_str(int(s)) for s in truncated_seconds],
         "frame_num": frame_nums,
     })
-    fps = resolve_fps([df])
-    assert fps == 25.0
+
+
+def test_resolve_fps_snaps_truncated_seconds_to_25_not_25_01():
+    # Realistic noise model (see _honest_truncation_df): per-row random fractional-second
+    # truncation, ~800 strokes spread across a ~50-minute match at true fps 25.0. A naive
+    # per-row ratio frame_num / seconds(time) would be biased high (~25.01+) on most rows; the
+    # whole-match OLS slope must recover the true fps and snap to exactly 25.0.
+    df = _honest_truncation_df(true_fps=25.0, n=800, t_start=0.0, t_end=3000.0, seed=1)
+    assert resolve_fps([df]) == 25.0
 
 
 def test_resolve_fps_snaps_to_2997_when_slope_closest_to_it():
-    true_fps = 29.97
-    frac = 0.3
-    xs = list(range(0, 2500, 5))
-    frame_nums = [true_fps * (x + frac) for x in xs]
-    df = pd.DataFrame({
-        "time": [_time_str(x) for x in xs],
-        "frame_num": frame_nums,
-    })
-    fps = resolve_fps([df])
-    assert fps == 29.97
+    # Same honest per-row truncation noise model, at true fps 29.97 (the one real match in the
+    # dataset that resolves to this rate) -- confirms the 3-way snap distinguishes 29.97 from
+    # the much more common 30.0 even under realistic per-row noise.
+    df = _honest_truncation_df(true_fps=29.97, n=800, t_start=0.0, t_end=3000.0, seed=2)
+    assert resolve_fps([df]) == 29.97
 
 
 def test_resolve_fps_pools_multiple_set_files():
+    # `time`/`frame_num` are continuous across a match's set files (not reset per set, per the
+    # notes), so set2's true elapsed time picks up where set1 left off.
     true_fps = 30.0
-    frac = 0.1
-    xs1 = list(range(0, 1000, 3))
-    xs2 = list(range(1000, 2000, 3))
-    df1 = pd.DataFrame({
-        "time": [_time_str(x) for x in xs1],
-        "frame_num": [true_fps * (x + frac) for x in xs1],
+    df1 = _honest_truncation_df(true_fps, n=400, t_start=0.0, t_end=1500.0, seed=3)
+    df2 = _honest_truncation_df(true_fps, n=400, t_start=1500.0, t_end=3000.0, seed=4)
+    assert resolve_fps([df1, df2]) == 30.0
+
+
+def test_resolve_fps_raises_on_fewer_than_two_rows():
+    df = pd.DataFrame({"time": ["0:00:01"], "frame_num": [25.0]})
+    with pytest.raises(ValueError):
+        resolve_fps([df])
+
+
+def test_resolve_fps_raises_on_constant_time():
+    df = pd.DataFrame({"time": ["0:00:01", "0:00:01", "0:00:01"], "frame_num": [25.0, 26.0, 27.0]})
+    with pytest.raises(ValueError):
+        resolve_fps([df])
+
+
+def test_resolve_fps_raises_when_slope_implausible():
+    # A slope nowhere near 25/29.97/30 (e.g. a bogus 60fps-ish series) must raise rather than
+    # silently snapping to the nearest (still wildly wrong) candidate.
+    xs = np.arange(0, 200, 1.0)
+    df = pd.DataFrame({
+        "time": [_time_str(int(x)) for x in xs],
+        "frame_num": 60.0 * xs,
     })
-    df2 = pd.DataFrame({
-        "time": [_time_str(x) for x in xs2],
-        "frame_num": [true_fps * (x + frac) for x in xs2],
-    })
-    fps = resolve_fps([df1, df2])
-    assert fps == 30.0
+    with pytest.raises(ValueError):
+        resolve_fps([df])

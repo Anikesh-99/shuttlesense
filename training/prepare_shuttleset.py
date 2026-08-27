@@ -71,8 +71,22 @@ def resolve_fps(set_dfs: list[pd.DataFrame]) -> float:
     biased high and must not be used."""
     xs = np.concatenate([_parse_time_seconds(df["time"]) for df in set_dfs])
     ys = np.concatenate([df["frame_num"].to_numpy(dtype=float) for df in set_dfs])
+    if len(xs) < 2:
+        raise ValueError(f"resolve_fps needs at least 2 (time, frame_num) rows, got {len(xs)}")
+    if np.ptp(xs) == 0:
+        raise ValueError(
+            "resolve_fps: all seconds(time) values are identical -- cannot fit a slope "
+            f"(x={xs[0]!r})"
+        )
     slope, _intercept = np.polyfit(xs, ys, 1)
-    return min(_FPS_CANDIDATES, key=lambda c: abs(c - slope))
+    snapped = min(_FPS_CANDIDATES, key=lambda c: abs(c - slope))
+    if abs(slope - snapped) > 0.5:
+        raise ValueError(
+            f"resolve_fps: fitted slope {slope!r} is not plausibly close to any nominal fps "
+            f"in {_FPS_CANDIDATES} (nearest candidate {snapped}, off by "
+            f"{abs(slope - snapped):.4f} > 0.5 tolerance)"
+        )
+    return snapped
 
 
 def convert(raw: pd.DataFrame, match_id: str, fps: float, set_num: int = 1) -> pd.DataFrame:
@@ -87,9 +101,17 @@ def convert(raw: pd.DataFrame, match_id: str, fps: float, set_num: int = 1) -> p
     single-set-file conversions.
     """
     players = sorted(p for p in raw["player"].dropna().unique())
-    pmap: dict[str, int] = {}
-    for i, p in enumerate(players[:2]):
-        pmap[p] = i
+    if set(players) != {"A", "B"}:
+        raise ValueError(
+            f"match {match_id!r} set_num={set_num}: expected exactly players {{'A', 'B'}}, "
+            f"got {players!r} -- refusing to guess a pmap and risk a silent id sign-flip"
+        )
+    pmap: dict[str, int] = {"A": 0, "B": 1}
+
+    assert (raw["frame_num"].dropna() % 1 == 0).all(), (
+        f"match {match_id!r} set_num={set_num}: non-integer frame_num values found -- "
+        "frame_num is expected to be an integer-valued float in the raw ShuttleSet CSVs"
+    )
 
     dropped_unknown = 0
     rows: list[dict] = []
@@ -131,12 +153,14 @@ def convert(raw: pd.DataFrame, match_id: str, fps: float, set_num: int = 1) -> p
         )
 
     out = pd.DataFrame(rows, columns=_OUTPUT_COLUMNS)
-    if not out.empty:
-        out = out.astype({
-            "match_id": str, "video_file": str, "fps": float, "rally_id": int,
-            "hit_frame": int, "player": int, "stroke": str,
-            "rally_start_frame": int, "rally_end_frame": int, "rally_winner": int,
-        })
+    # Cast unconditionally (including the empty-frame case, e.g. an all-未知球種 set file) so
+    # every convert() call returns identically-dtyped columns -- an object-dtyped empty frame
+    # concatenated against int64-dtyped frames elsewhere would silently upcast/poison dtypes.
+    out = out.astype({
+        "match_id": str, "video_file": str, "fps": float, "rally_id": int,
+        "hit_frame": int, "player": int, "stroke": str,
+        "rally_start_frame": int, "rally_end_frame": int, "rally_winner": int,
+    })
     return out
 
 
@@ -167,6 +191,12 @@ def main() -> None:
             total_dropped += len(df) - len(converted)
             frames.append(converted)
 
+    if not frames:
+        raise ValueError(
+            "no set-file dataframes were converted (frames list is empty) -- check "
+            f"--raw-dir={args.raw_dir!r} points at a valid ShuttleSet layout with "
+            "set/match.csv and set/<video_folder>/set*.csv files"
+        )
     out = pd.concat(frames, ignore_index=True)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.out, index=False)

@@ -508,6 +508,44 @@ of potential drift between the label's frame numbering and a freshly downloaded 
   int column is a weak rally-position marker, not a player identity — see (a)). To know who
   served a given rally, look at `player` on the `ball_round==1` row of that rally.
 
+## Output contract: `training/data/processed/labels.parquet` (Task 6)
+
+Produced by `training/prepare_shuttleset.py`. Columns: `match_id:str, video_file:str, fps:float,
+rally_id:int, hit_frame:int, player:int, stroke:str, rally_start_frame:int, rally_end_frame:int,
+rally_winner:int`.
+
+**Correction to the brief's Interfaces line:** the brief states `player:int (0|1)` and
+`rally_winner:int (0|1)`. `player` is indeed always `0` or `1` (every real player is either `'A'`
+or `'B'`), but **`rally_winner` is `0|1|-1`** — the `-1` sentinel means "this rally's outcome was
+never annotated" (9 rallies survive with `-1` in the real output after `未知球種`-only rallies are
+dropped entirely; see "Real counts" below). Any consumer of this parquet file must handle `-1` as
+a distinct "unknown" class, not silently treat it as `0`/false or filter it out without noticing.
+
+**LEAKAGE WARNINGS — read before using this file for model training/evaluation:**
+
+1. **`player`/`rally_winner` id `0` is the eventual MATCH WINNER by construction, not an
+   arbitrary or randomized label.** Per §(f), `player=='A'` is verified (44/44 matches) to always
+   be the player who wins the *overall match*, and `convert()` maps `sorted(unique(player))[0]`
+   (i.e. `'A'`) to id `0`. This means **id `0` == match winner, id `1` == match loser, for every
+   single row in this file, with zero exceptions** — it is not per-rally, per-set, or randomized.
+   Any consumer that trains a model to *predict* match/rally outcomes (or anything correlated
+   with who wins) using `player` or `rally_winner` as given must either (a) re-randomize the
+   0/1 <-> A/B assignment independently per match before training, or (b) exclude `player`/
+   `rally_winner`-derived identity as an input feature entirely. Using the raw id column as
+   a naive input feature to an outcome-prediction model **will leak the label into the input**.
+2. **`rally_winner` and `rally_end_frame` are rally-level, FUTURE-relative-to-most-strokes
+   values broadcast onto every stroke row of that rally.** For any stroke that isn't the last one
+   in its rally, `rally_winner` (which stroke, still in the future at that point, decided the
+   rally) and `rally_end_frame` (a frame number that hasn't happened yet relative to that stroke)
+   are both determined by information that lies temporally after the current row. This is fine
+   as **display/grouping metadata** (e.g. showing "this rally was won by X" in a UI, or windowing
+   strokes by rally boundaries) but must **never be used as a per-stroke input feature** for any
+   model that predicts something at or before that stroke's `hit_frame` — doing so leaks the
+   rally's future outcome/end into a mid-rally prediction. `rally_start_frame` is comparatively
+   safer (it's fixed at or before the first hit of the rally, i.e. at-or-before every row in the
+   group) but is still a rally-level constant repeated across rows, not a genuinely
+   per-stroke-causal signal — treat with the same care.
+
 ## Miscellaneous / gotchas for Task 6
 
 - `ball_round`, `roundscore_A`, `roundscore_B` etc. load as `float64` even though they're
