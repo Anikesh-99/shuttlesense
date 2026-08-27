@@ -1,0 +1,56 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: ../.venv/bin/python prepare_shuttleset.py --raw-dir data/raw/shuttleset
+      --out data/processed/labels.parquet
+    deps:
+    - path: data/raw/shuttleset
+      hash: md5
+      md5: 6d46c0d58b35b6edb5131c6f46b0b48e.dir
+      size: 4210810
+      nfiles: 107
+    - path: prepare_shuttleset.py
+      hash: md5
+      md5: d9c8acc0ced5677d5e00667ae4d92342
+      size: 9846
+    outs:
+    - path: data/processed/labels.parquet
+      hash: md5
+      md5: 0465677bb53fe8c90e37f8d5af37d08a
+      size: 302222
+  windows:
+    cmd: ../.venv/bin/python build_windows.py --labels 
+      data/processed/labels.parquet --poses data/processed/poses --videos-dir 
+      data/raw/videos --out-dir data/processed
+    deps:
+    - path: build_windows.py
+      hash: md5
+      md5: a50fcace1271622ae6793e8957d1f4b8
+      size: 14139
+    - path: data/processed/labels.parquet
+      hash: md5
+      md5: 0465677bb53fe8c90e37f8d5af37d08a
+      size: 302222
+    - path: data/processed/poses
+      hash: md5
+      md5: 3042d0ac765482ddd0bd7176f30d098f.dir
+      size: 287382
+      nfiles: 1
+    - path: data/raw/videos
+      hash: md5
+      md5: 93f1e90bddecfb09ea2f2708d0a46843.dir
+      size: 6044394
+      nfiles: 2
+    outs:
+    - path: data/processed/rally_frames.npz
+      hash: md5
+      md5: e78d0cae7c8eaeec0426f445f0c9da86
+      size: 14434
+    - path: data/processed/splits.json
+      hash: md5
+      md5: c0e26ea254035b081423525ed61bbbad
+      size: 3378
+    - path: data/processed/stroke_windows.npz
+      hash: md5
+      md5: b039495dad56a74e51be81612700337e
+      size: 249720

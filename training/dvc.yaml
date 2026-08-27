@@ -1,0 +1,25 @@
+# NOTE: paths below are relative to this file's directory (training/), per dvc.yaml
+# convention -- NOT to the repo root. The task brief's original snippet wrote paths
+# like `training/build_windows.py`, which is only correct for a dvc.yaml at the repo
+# root; since this file lives at `training/dvc.yaml`, that would resolve to the
+# nonexistent `training/training/build_windows.py` (confirmed via `dvc status`, which
+# reported every dep/out as "deleted" until this was fixed).
+#
+# `cmd` also runs with cwd set to this file's directory (training/), so it invokes
+# the venv's python via a `../`-relative path (there's no "python" on PATH outside the
+# venv on this machine, and `dvc repro`'s subprocess doesn't inherit venv activation)
+# and passes explicit training/-relative --raw-dir/--out/--labels/--poses/--out-dir
+# flags matching the deps/outs above, rather than relying on each script's own
+# argparse defaults (which are repo-root-relative, since both scripts are normally
+# invoked directly from the repo root -- see their own --help).
+stages:
+  prepare:
+    cmd: ../.venv/bin/python prepare_shuttleset.py --raw-dir data/raw/shuttleset --out data/processed/labels.parquet
+    deps: [prepare_shuttleset.py, data/raw/shuttleset]
+    outs: [data/processed/labels.parquet]
+  windows:
+    cmd: ../.venv/bin/python build_windows.py --labels data/processed/labels.parquet --poses data/processed/poses --videos-dir data/raw/videos --out-dir data/processed
+    deps: [build_windows.py, data/processed/labels.parquet, data/processed/poses, data/raw/videos]
+    outs: [data/processed/stroke_windows.npz,
+           data/processed/rally_frames.npz,
+           data/processed/splits.json]

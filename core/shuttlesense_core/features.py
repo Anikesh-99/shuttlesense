@@ -11,7 +11,7 @@ Contracts (load-bearing for downstream tasks 8 and 15):
   normalized `(17,2)` position and the last 34 are the frame-to-frame
   velocity (difference from the previous row in the window; the first row's
   velocity is 0). The window is *past-heavy*: it spans `w // 2` frames before
-  `center` through `w - w // 2` frames after (e.g. for w=30: 15 back, 15
+  `center` through `w - w//2 - 1` frames after (for w=30: 15 back, center, 14
   forward, with `center` itself falling at window index `w // 2`).
   Out-of-range frame indices (before frame 0 or past the last frame) clamp to
   the nearest valid edge frame, so near a clip boundary multiple window rows

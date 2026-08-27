@@ -90,3 +90,27 @@ def test_assign_depth_stat_falls_back_to_ungated_max_when_all_below_threshold():
     ok, osc = assign_players(k, s)
     assert ok[0, 0, 1] == 500.0
     assert ok[1, 0, 1] == 200.0
+
+
+def test_assign_gate_independent_per_person_mixed_score():
+    # Person 0: one keypoint (idx 5) has the largest y (500) but score < 0.3, so the
+    # gated depth stat must exclude it and fall back to the next-highest *scoring* y
+    # (200, from the other 16 keypoints, all scored 0.9). Person 1: EVERY keypoint
+    # scores below 0.3, so its depth stat must use the ungated max(y) fallback (350).
+    # This pins down that the score gate is evaluated independently per person: person
+    # 0's low-score outlier must not leak into person 1's fallback decision (or vice
+    # versa) -- each person's gated-vs-fallback branch is decided on its own scores.
+    k = np.zeros((2, 17, 2), dtype=np.float32)
+    s = np.zeros((2, 17), dtype=np.float32)
+    k[0, :, 1] = 200.0
+    k[0, 5, 1] = 500.0  # highest-y point for person 0, but ...
+    s[0, :] = 0.9
+    s[0, 5] = 0.1  # ... scored below threshold -> excluded from person 0's gated max
+    k[1, :, 1] = 350.0  # uniform y, all below threshold -> ungated fallback = 350
+    s[1, :] = 0.1
+    ok, osc = assign_players(k, s)
+    # person 1's fallback depth (350) > person 0's gated depth (200) -> person 1 in slot 0.
+    # (If person 0's gate incorrectly leaked the 500 outlier through, 500 > 350 would
+    # wrongly put person 0 in slot 0 instead.)
+    assert ok[0, 0, 1] == 350.0
+    assert ok[1, 0, 1] == 200.0

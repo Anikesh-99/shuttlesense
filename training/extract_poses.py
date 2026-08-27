@@ -10,8 +10,11 @@ original video's `frame_num` labels** -- if the source video is a trimmed segmen
 one verification clip in this repo is, via `yt-dlp --download-sections`), the segment's
 start offset within the *full* match video is only recorded in the sidecar
 `training/data/raw/videos/<match_id>.json` (`{url, download_section, start_offset_s}`),
-not in the npz. A consumer must add `start_offset_s * orig_fps` to any in-clip frame index
-before comparing it to a label's `frame_num`.
+not in the npz. A consumer must convert an in-clip *sampled* frame index (i.e. an index
+into `kpts`/`scores`, 0-based) back to an original-video frame number via
+`sampled_idx * step + start_offset_s * orig_fps` (both `step` and `orig_fps` come from
+`meta`) before comparing it to a label's `frame_num` -- omitting the `* step` factor
+silently under-scales the offset whenever sampling is decimated (step > 1).
 
 rtmlib return-convention notes (verified empirically against rtmlib 0.0.16, not just
 read from source, before writing `extract()` -- see task-7-report.md for the full
@@ -119,7 +122,8 @@ def extract(video_path: str, target_fps: float = 15.0):
     provenance JSON), (b) how to read `meta` back out of the saved npz, and (c) why a
     zero-valued player slot means "absent", not "at the origin".
     """
-    assert target_fps > 0, "target_fps must be > 0"
+    if target_fps <= 0:
+        raise ValueError(f"target_fps must be > 0, got {target_fps!r}")
     from rtmlib import Body  # deferred: avoids paying model-download cost at import time
 
     cap = cv2.VideoCapture(video_path)
