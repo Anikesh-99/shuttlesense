@@ -7,6 +7,7 @@ training/data/**
 !training/data/**/
 !training/data/**/*.dvc
 !training/data/raw/.gitignore
+!training/data/raw/videos/*.json
 wandb/
 .dvc/cache
 *.egg-info/

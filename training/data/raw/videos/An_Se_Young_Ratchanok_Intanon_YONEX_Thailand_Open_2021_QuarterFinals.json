@@ -1,0 +1,6 @@
+{
+  "url": "https://www.youtube.com/watch?v=gloiZ_gTJaE",
+  "download_section": "*10:00-11:00",
+  "start_offset_s": 600,
+  "note": "yt-dlp --download-sections trims relative to the full match video hosted at `url`. `start_offset_s` (600s = 10:00) must be added to any in-clip sampled-frame time (frame_index_in_clip / meta['fps_sampled']) before it can be compared to a ShuttleSet label's frame_num (which indexes the full match video, not this trimmed clip). This file exists because npz `meta` alone (see extract_poses.py docstring) has no way to represent this offset."
+}
