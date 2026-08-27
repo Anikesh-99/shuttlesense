@@ -20,7 +20,7 @@ def set_seed(s: int) -> None:
     torch.manual_seed(s)
 
 
-def resolve_splits(all_matches: set, splits_path: str) -> dict:
+def resolve_splits(all_matches: set, splits_path: str, data_path: str) -> dict:
     """Load and validate a splits.json against the set of match ids actually
     present in the data file.
 
@@ -33,10 +33,14 @@ def resolve_splits(all_matches: set, splits_path: str) -> dict:
       match-level data across train/val/test).
     - unknown ids: any listed match id absent from `all_matches` is warned
       about on stderr (but not treated as fatal -- the caller simply won't
-      find rows for it).
+      find rows for it). `data_path` is only used to name the offending file
+      in this warning message.
 
     Returns the raw `{name: [match_id, ...]}` dict, unfiltered -- filtering
-    down to ids actually present in the data is the caller's job.
+    down to ids actually present in the data is the caller's job. Callers
+    should iterate `sorted(splits[name])` (not `splits[name]` as-is) so that
+    downstream data assembly order does not depend on the order match ids
+    happen to be listed in splits.json.
     """
     splits = json.loads(open(splits_path).read())
 
@@ -61,6 +65,6 @@ def resolve_splits(all_matches: set, splits_path: str) -> dict:
         unknown = sorted(mid for mid in splits[name] if mid not in all_matches)
         if unknown:
             print(f"WARNING: {splits_path} '{name}' names match id(s) {unknown} "
-                  f"that match zero rows in the data's `match` array", file=sys.stderr)
+                  f"that match zero rows in {data_path}'s `match` array", file=sys.stderr)
 
     return splits

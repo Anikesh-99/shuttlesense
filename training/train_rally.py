@@ -20,6 +20,14 @@ only primitives (a tensor state_dict, a plain dict `config` from
 `yaml.safe_load`, and a float `val_frame_f1`) -- no custom classes or
 callables -- so it loads under both `torch.load(..., weights_only=True)` and
 `weights_only=False`. The smoke test uses `weights_only=False` per the brief.
+
+Inference note (carry-forward for Task 15): `RallyGRU` is a bidirectional GRU
+whose hidden state resets at the start of every forward pass, i.e. at every
+chunk boundary during training. To match that at inference time, run the
+model over either (a) a match's full frame sequence in one forward pass, or
+(b) the same fixed-size (`cfg["chunk"]`, default 512) non-overlapping chunks
+used here -- not arbitrary-length windows -- or the learned boundary behavior
+will not transfer.
 """
 from __future__ import annotations
 import argparse, os, sys
@@ -43,69 +51,109 @@ from training.models import RallyGRU
 
 def chunk(X: np.ndarray, y: np.ndarray, size: int = 512):
     """Split one match's (contiguous, non-overlapping) frames into windows of
-    `size`. A short final remainder that doesn't fill a whole window is
-    dropped UNLESS there isn't even one full window yet (`n == 0`), in which
-    case the whole (short) sequence is zero-padded up to exactly one window --
-    this guarantees `load_split` never emits a zero-length sequence for a
-    match with fewer than `size` frames.
+    `size`.
+
+    PAD-ALWAYS-WITH-MASK policy (controller ruling, Task 11 review round 1):
+    no frames are ever dropped. Any remainder shorter than `size` is
+    zero-padded up to exactly one more full window. A third return value,
+    `mask` (shape `(n_chunks, size)`, float32, 1.0 = real frame / 0.0 = pad),
+    lets callers (loss/metric computation) exclude the padding.
 
     Never spans two matches: callers must invoke this once per match (see
     `load_split`), not on the whole (multi-match) array.
+
+    Raises ValueError if `X` is empty (0 frames) -- there is nothing to chunk.
     """
-    n = (len(X) // size) * size
-    if n == 0:
-        pad = size - len(X)
-        X = np.pad(X, ((0, pad), (0, 0)))
-        y = np.pad(y, (0, pad))
-        n = size
-    return (torch.from_numpy(X[:n].reshape(-1, size, X.shape[1])),
-            torch.from_numpy(y[:n].reshape(-1, size)))
+    if len(X) == 0:
+        raise ValueError("chunk() received an empty sequence (0 frames) -- "
+                          "nothing to chunk")
+    n_full = len(X) // size
+    remainder = len(X) - n_full * size
+    if remainder > 0:
+        pad = size - remainder
+        Xp = np.pad(X, ((0, pad), (0, 0)))
+        yp = np.pad(y, (0, pad))
+        mask = np.ones(len(Xp), dtype=np.float32)
+        mask[len(X):] = 0.0
+        n_chunks = n_full + 1
+    else:
+        Xp, yp = X, y
+        mask = np.ones(len(Xp), dtype=np.float32)
+        n_chunks = n_full
+    return (torch.from_numpy(Xp.reshape(n_chunks, size, X.shape[1])),
+            torch.from_numpy(yp.reshape(n_chunks, size)),
+            torch.from_numpy(mask.reshape(n_chunks, size)))
 
 
 def load_split(data_path, splits_path, chunk_size: int = 512):
+    """Per-split, per-match chunking. Match ids within each split are visited
+    in sorted order (see `resolve_splits`) so the assembled (X, y, mask)
+    tensors -- and therefore epoch-0 batch order under a fixed seed -- do not
+    depend on the order match ids happen to be listed in splits.json.
+
+    Returns `{name: (X, y, mask)}` for name in train/val/test, each a stacked
+    tensor of chunks across every match in that split (never spanning two
+    matches within one chunk -- see `chunk`). An empty split (or one whose
+    match ids are all unknown to the data file) yields zero-length tensors of
+    the right shape rather than raising."""
     z = np.load(data_path)
     all_matches = set(np.unique(z["match"]).tolist())
-    splits = resolve_splits(all_matches, splits_path)
+    splits = resolve_splits(all_matches, splits_path, data_path)
     n_features = z["X"].shape[1]
     out = {}
     for name in ("train", "val", "test"):
-        Xs, ys = [], []
-        for mid in splits[name]:
+        Xs, ys, ms = [], [], []
+        for mid in sorted(splits[name]):
             m = z["match"] == mid
             if not m.any():  # unknown id -- already warned by resolve_splits
                 continue
-            Xc, yc = chunk(z["X"][m], z["y"][m], size=chunk_size)
+            Xc, yc, mc = chunk(z["X"][m], z["y"][m], size=chunk_size)
             Xs.append(Xc)
             ys.append(yc)
+            ms.append(mc)
         if Xs:
-            out[name] = (torch.cat(Xs), torch.cat(ys))
+            out[name] = (torch.cat(Xs), torch.cat(ys), torch.cat(ms))
         else:
             out[name] = (torch.empty((0, chunk_size, n_features), dtype=torch.float32),
+                         torch.empty((0, chunk_size), dtype=torch.float32),
                          torch.empty((0, chunk_size), dtype=torch.float32))
     return out
 
 
-def run_epoch(model, X, y, bs, opt=None, loss_fn=None, device="cpu"):
-    """One pass over chunked (X, y). Mirrors train_stroke.py's guard: an empty
-    split must not crash -- return 0.0 loss/f1 and empty arrays."""
+def run_epoch(model, X, y, mask, bs, opt=None, loss_fn=None, device="cpu"):
+    """One pass over chunked (X, y, mask). `mask` marks real (1.0) vs. padded
+    (0.0) frames introduced by `chunk`'s pad-always policy; both the training
+    loss and the frame-F1 metric are computed only over real frames.
+
+    `loss_fn` is expected to be `nn.BCEWithLogitsLoss(reduction="none")` so
+    per-frame losses can be masked before averaging (masked mean:
+    `sum(loss * mask) / sum(mask)`).
+
+    Mirrors train_stroke.py's guard: an empty split must not crash -- return
+    0.0 loss/f1 and empty arrays."""
     if len(X) == 0:
         return 0.0, 0.0, (np.array([], dtype=np.float32), np.array([], dtype=np.float32))
     idx = torch.randperm(len(X)) if opt is not None else torch.arange(len(X))
-    losses, probs, ys = [], [], []
+    losses, probs, ys, masks = [], [], [], []
     for i in range(0, len(X), bs):
         b = idx[i:i + bs]
-        xb, yb = X[b].to(device), y[b].to(device)
+        xb, yb, mb = X[b].to(device), y[b].to(device), mask[b].to(device)
         logits = model(xb)
         if opt is not None:
-            loss = loss_fn(logits, yb)
+            raw_loss = loss_fn(logits, yb)
+            loss = (raw_loss * mb).sum() / mb.sum().clamp(min=1.0)
             opt.zero_grad(); loss.backward(); opt.step()
             losses.append(loss.item())
         probs.append(torch.sigmoid(logits).detach().cpu())
         ys.append(yb.cpu())
+        masks.append(mb.cpu())
     p = torch.cat(probs).numpy().ravel()
     t = torch.cat(ys).numpy().ravel()
-    f1 = f1_score(t, (p > 0.5).astype(np.float32), zero_division=0)
-    return (np.mean(losses) if losses else 0.0, f1, (t, p))
+    real = torch.cat(masks).numpy().ravel().astype(bool)
+    t_real, p_real = t[real], p[real]
+    f1 = (f1_score(t_real, (p_real > 0.5).astype(np.float32), zero_division=0)
+          if len(t_real) else 0.0)
+    return (np.mean(losses) if losses else 0.0, f1, (t_real, p_real))
 
 
 def main():
@@ -134,7 +182,8 @@ def main():
               "epoch-0 model", file=sys.stderr)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = RallyGRU(hidden=cfg["hidden"]).to(device)
-    loss_fn = nn.BCEWithLogitsLoss()
+    # reduction="none": run_epoch masks out padded frames before averaging.
+    loss_fn = nn.BCEWithLogitsLoss(reduction="none")
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     wb = None
     if a.wandb:

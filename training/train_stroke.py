@@ -43,12 +43,17 @@ from shuttlesense_core.schemas import ALL_CLASSES
 
 
 def load_split(data_path, splits_path):
+    """`splits[name]` is iterated in sorted order (see `resolve_splits`) so the
+    result is invariant to the order match ids happen to appear in
+    splits.json. `np.isin` doesn't care about argument order to begin with,
+    so this is purely for consistency with `train_rally.load_split`, where
+    match order does affect the assembled tensor."""
     z = np.load(data_path)
     all_matches = set(np.unique(z["match"]).tolist())
-    splits = resolve_splits(all_matches, splits_path)
+    splits = resolve_splits(all_matches, splits_path, data_path)
     out = {}
     for name in ("train", "val", "test"):
-        m = np.isin(z["match"], splits[name])
+        m = np.isin(z["match"], sorted(splits[name]))
         out[name] = (torch.from_numpy(z["X"][m]), torch.from_numpy(z["y"][m]))
     return out
 
