@@ -20,7 +20,7 @@ and `weights_only=False`. The smoke test uses `weights_only=False` per the brief
 module's own save path does not depend on either mode to work.
 """
 from __future__ import annotations
-import argparse, json, os, random, sys
+import argparse, os, sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -37,38 +37,18 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from training.common import set_seed, resolve_splits
 from training.models import StrokeTCN
 from shuttlesense_core.schemas import ALL_CLASSES
 
 
-def set_seed(s):
-    random.seed(s); np.random.seed(s); torch.manual_seed(s)
-
-
 def load_split(data_path, splits_path):
     z = np.load(data_path)
-    splits = json.loads(open(splits_path).read())
-
-    # Disjointness: a match id listed in more than one split would leak match-level
-    # data across train/val/test (the whole point of a match-level split).
-    sets = {name: set(splits.get(name, [])) for name in ("train", "val", "test")}
-    for a_name, b_name in (("train", "val"), ("train", "test"), ("val", "test")):
-        overlap = sets[a_name] & sets[b_name]
-        if overlap:
-            raise ValueError(
-                f"{splits_path}: match id(s) {sorted(overlap)} appear in both "
-                f"'{a_name}' and '{b_name}' -- splits must be disjoint"
-            )
-
     all_matches = set(np.unique(z["match"]).tolist())
+    splits = resolve_splits(all_matches, splits_path)
     out = {}
     for name in ("train", "val", "test"):
-        wanted = splits.get(name, [])
-        unknown = sorted(mid for mid in wanted if mid not in all_matches)
-        if unknown:
-            print(f"WARNING: {splits_path} '{name}' names match id(s) {unknown} that "
-                  f"match zero rows in {data_path}'s `match` array", file=sys.stderr)
-        m = np.isin(z["match"], wanted)
+        m = np.isin(z["match"], splits[name])
         out[name] = (torch.from_numpy(z["X"][m]), torch.from_numpy(z["y"][m]))
     return out
 

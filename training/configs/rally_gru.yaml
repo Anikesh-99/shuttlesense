@@ -1,0 +1,7 @@
+seed: 13
+epochs: 30
+batch_size: 16
+lr: 0.001
+weight_decay: 0.0001
+hidden: 32
+chunk: 512
