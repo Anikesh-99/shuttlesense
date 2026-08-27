@@ -1,8 +1,23 @@
+import json
+
 import numpy as np
+import pytest
 import torch
 
-from training.train_stroke import compute_class_weights, run_epoch
+from training.train_stroke import compute_class_weights, load_split, run_epoch
 from training.models import StrokeTCN
+
+
+def _write_npz_and_splits(tmp_path, splits):
+    n = 8
+    X = np.zeros((n, 30, 68), dtype=np.float32)
+    y = np.zeros(n, dtype=np.int64)
+    match = np.array(["m01"] * 4 + ["m02"] * 4, dtype="<U32")
+    data_path = tmp_path / "sw.npz"
+    splits_path = tmp_path / "splits.json"
+    np.savez(data_path, X=X, y=y, match=match)
+    splits_path.write_text(json.dumps(splits))
+    return data_path, splits_path
 
 
 def test_compute_class_weights_shape_and_values():
@@ -46,3 +61,33 @@ def test_run_epoch_nonempty_smoke():
         loss, f1, (t, p) = run_epoch(model, X, y, bs=2)
     assert loss == 0.0  # no optimizer passed -> no loss computed, stays default 0.0
     assert len(t) == 5 and len(p) == 5
+
+
+def test_load_split_rejects_overlapping_matches(tmp_path):
+    data_path, splits_path = _write_npz_and_splits(
+        tmp_path, {"train": ["m01", "m02"], "val": ["m02"], "test": []}
+    )
+    with pytest.raises(ValueError, match="disjoint"):
+        load_split(str(data_path), str(splits_path))
+
+
+def test_load_split_warns_on_unknown_match_id(tmp_path, capsys):
+    data_path, splits_path = _write_npz_and_splits(
+        tmp_path, {"train": ["m01", "m99"], "val": ["m02"], "test": []}
+    )
+    out = load_split(str(data_path), str(splits_path))
+    err = capsys.readouterr().err
+    assert "m99" in err
+    assert "zero rows" in err
+    # the known match id is still loaded despite the unknown one being warned about
+    assert len(out["train"][0]) == 4
+
+
+def test_load_split_disjoint_ok_no_warning(tmp_path, capsys):
+    data_path, splits_path = _write_npz_and_splits(
+        tmp_path, {"train": ["m01"], "val": ["m02"], "test": []}
+    )
+    out = load_split(str(data_path), str(splits_path))
+    err = capsys.readouterr().err
+    assert err == ""
+    assert len(out["train"][0]) == 4 and len(out["val"][0]) == 4

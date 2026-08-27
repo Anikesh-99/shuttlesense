@@ -48,9 +48,27 @@ def set_seed(s):
 def load_split(data_path, splits_path):
     z = np.load(data_path)
     splits = json.loads(open(splits_path).read())
+
+    # Disjointness: a match id listed in more than one split would leak match-level
+    # data across train/val/test (the whole point of a match-level split).
+    sets = {name: set(splits.get(name, [])) for name in ("train", "val", "test")}
+    for a_name, b_name in (("train", "val"), ("train", "test"), ("val", "test")):
+        overlap = sets[a_name] & sets[b_name]
+        if overlap:
+            raise ValueError(
+                f"{splits_path}: match id(s) {sorted(overlap)} appear in both "
+                f"'{a_name}' and '{b_name}' -- splits must be disjoint"
+            )
+
+    all_matches = set(np.unique(z["match"]).tolist())
     out = {}
     for name in ("train", "val", "test"):
-        m = np.isin(z["match"], splits[name])
+        wanted = splits.get(name, [])
+        unknown = sorted(mid for mid in wanted if mid not in all_matches)
+        if unknown:
+            print(f"WARNING: {splits_path} '{name}' names match id(s) {unknown} that "
+                  f"match zero rows in {data_path}'s `match` array", file=sys.stderr)
+        m = np.isin(z["match"], wanted)
         out[name] = (torch.from_numpy(z["X"][m]), torch.from_numpy(z["y"][m]))
     return out
 
@@ -64,22 +82,27 @@ def compute_class_weights(y_train: np.ndarray, n_classes: int) -> torch.Tensor:
     return torch.tensor(weights)
 
 
-def run_epoch(model, X, y, bs, opt=None, loss_fn=None):
+def run_epoch(model, X, y, bs, opt=None, loss_fn=None, device="cpu"):
     """One pass over (X, y). Guard: an empty split (e.g. a tiny/degenerate val set in
     smoke scenarios) must not crash -- return a 0.0 loss/f1 and empty pred/target arrays
-    rather than dividing by zero or calling f1_score on empty input."""
+    rather than dividing by zero or calling f1_score on empty input.
+
+    `device` defaults to "cpu" so existing callers/tests that don't pass it are
+    byte-equivalent to before device support was added (X/y already live on CPU;
+    `.to("cpu")`/`.cpu()` on a CPU tensor are no-ops)."""
     if len(X) == 0:
         return 0.0, 0.0, (np.array([], dtype=np.int64), np.array([], dtype=np.int64))
     idx = torch.randperm(len(X)) if opt is not None else torch.arange(len(X))
     losses, preds, ys = [], [], []
     for i in range(0, len(X), bs):
         b = idx[i:i + bs]
-        logits = model(X[b])
+        xb, yb = X[b].to(device), y[b].to(device)
+        logits = model(xb)
         if opt is not None:
-            loss = loss_fn(logits, y[b])
+            loss = loss_fn(logits, yb)
             opt.zero_grad(); loss.backward(); opt.step()
             losses.append(loss.item())
-        preds.append(logits.argmax(1)); ys.append(y[b])
+        preds.append(logits.argmax(1).cpu()); ys.append(yb.cpu())
     p, t = torch.cat(preds).numpy(), torch.cat(ys).numpy()
     return (np.mean(losses) if losses else 0.0,
             f1_score(t, p, average="macro", zero_division=0), (t, p))
@@ -95,16 +118,23 @@ def main():
     ap.add_argument("--wandb", action="store_true")
     a = ap.parse_args()
     cfg = yaml.safe_load(open(a.config))
-    if a.epochs:
-        cfg["epochs"] = a.epochs
+    if a.epochs is not None:  # 0 is a valid (if useless) explicit override; must not
+        cfg["epochs"] = a.epochs  # silently fall back to the config's epochs instead
+    if cfg.get("epochs", 0) <= 0:
+        raise ValueError(f"cfg['epochs'] must be > 0, got {cfg.get('epochs')!r}")
     set_seed(cfg["seed"])
     data = load_split(a.data, a.splits)
-    assert len(data["train"][0]) > 0, (
-        f"train split is empty -- check {a.splits} match names against {a.data}'s "
-        "`match` array (no overlap found)"
-    )
-    model = StrokeTCN(channels=tuple(cfg["channels"]), k=cfg["kernel"])
-    weights = compute_class_weights(data["train"][1].numpy(), len(ALL_CLASSES))
+    if len(data["train"][0]) == 0:
+        raise ValueError(
+            f"train split is empty -- check {a.splits} match names against {a.data}'s "
+            "`match` array (no overlap found)"
+        )
+    if len(data["val"][0]) == 0:
+        print("val split empty; model selection disabled; best.pt will hold the "
+              "epoch-0 model", file=sys.stderr)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = StrokeTCN(channels=tuple(cfg["channels"]), k=cfg["kernel"]).to(device)
+    weights = compute_class_weights(data["train"][1].numpy(), len(ALL_CLASSES)).to(device)
     loss_fn = nn.CrossEntropyLoss(weight=weights)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     wb = None
@@ -119,10 +149,11 @@ def main():
     best = -1.0
     for ep in range(cfg["epochs"]):
         model.train()
-        tr_loss, tr_f1, _ = run_epoch(model, *data["train"], cfg["batch_size"], opt, loss_fn)
+        tr_loss, tr_f1, _ = run_epoch(model, *data["train"], cfg["batch_size"], opt, loss_fn,
+                                       device=device)
         model.eval()
         with torch.no_grad():
-            _, va_f1, (t, p) = run_epoch(model, *data["val"], cfg["batch_size"])
+            _, va_f1, (t, p) = run_epoch(model, *data["val"], cfg["batch_size"], device=device)
         if wb:
             wb.log({"epoch": ep, "train_loss": tr_loss, "train_f1": tr_f1, "val_f1": va_f1})
         print(f"ep{ep} loss={tr_loss:.3f} train_f1={tr_f1:.3f} val_f1={va_f1:.3f}")
@@ -130,7 +161,8 @@ def main():
             best = va_f1
             confusion = (confusion_matrix(t, p, labels=range(len(ALL_CLASSES))).tolist()
                          if len(t) else [[0] * len(ALL_CLASSES) for _ in ALL_CLASSES])
-            torch.save({"state_dict": model.state_dict(), "config": cfg,
+            state_dict_cpu = {k: v.cpu() for k, v in model.state_dict().items()}
+            torch.save({"state_dict": state_dict_cpu, "config": cfg,
                         "val_macro_f1": best, "classes": ALL_CLASSES,
                         "confusion": confusion},
                        f"{a.out_dir}/best.pt")
