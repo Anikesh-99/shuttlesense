@@ -50,10 +50,16 @@ negative, whenever *that* slot independently clears `PRESENCE_THR` -- this mirro
 inference time, where the running classifier sees both players' windows every frame and
 must correctly say "none" for whichever one didn't just hit. These "other-slot" negatives
 count toward the 1:1 negative budget; any remaining budget (positives emitted minus
-other-slot negatives already emitted) is filled by uniformly-random frames that stay more
-than `NEG_GUARD_FRAMES` away from every considered hit frame (this old fallback keeps
-the previous behavior for negative diversity/coverage away from stroke contexts entirely,
-not just away from a specific player's stroke).
+other-slot negatives already emitted) is filled by uniformly-random `(frame, slot)`
+draws that (a) stay more than `NEG_GUARD_FRAMES` away from every considered hit frame,
+(b) themselves clear `PRESENCE_THR` at the drawn frame, and (c) produce a non-all-zero
+window -- a draw failing any of these is discarded and re-drawn, counted against the
+same try budget (CONTROLLER RULING, Fix round 2, item 1: without the presence/non-zero
+checks here, a random draw landing on an absent/zero-padded slot would hand the
+classifier a literal all-zeros-input -> "none" shortcut that trivially separates from
+any real positive, which is exactly the "false claim" the I4 correction below flags --
+this fix is what actually makes that correction true end-to-end, including the random
+fallback path, not just the systematic other-slot-at-hit path).
 
 **Frame alignment (I1 RULING, generalizes the Task 7 carry-over).** The pose npz's frame
 axis is *clip-relative sampled frames*, not the original video's frame numbering that
@@ -91,9 +97,13 @@ padded rally windows (`rally_start_frame`/`rally_end_frame`, padded +/-15/+30 ra
 around each rally's first/last hit) can overlap between adjacent rallies, and
 `rally_end_frame` has no upper clamp against the video's actual frame count.
 `build_rally_frame_labels()` treats overlapping intervals as a union (a pose frame is
-`play=1` if it falls in *any* rally interval), explicitly clamps both interval ends into
-`[0, n_frames)` rather than relying on Python's slice-index wraparound semantics for
-out-of-range bounds, and treats **both endpoints as INCLUSIVE**: the pose frame at
+`play=1` if it falls in *any* rally interval), explicitly clamps each interval's start
+up from below to `0` and its (already-inclusive-adjusted, see below) end down from
+above to `n_frames` -- so every internal slice bound stays within `[0, n_frames]` --
+rather than relying on Python's slice-index wraparound semantics for out-of-range
+bounds (NIT fix, Fix round 2, item 3: the previous wording here, `[0, n_frames)`,
+predated the M1 inclusive-end change below and was stale/imprecise about which end is
+clamped which way). It also treats **both endpoints as INCLUSIVE**: the pose frame at
 exactly `round(end)` is itself considered "in play" (not the first out-of-play frame
 after it), since `rally_end_frame` names the last padded frame of the rally, not an
 exclusive boundary. Internally this means the half-open python slice used to set `1.0`
@@ -142,6 +152,7 @@ import argparse
 import glob
 import json
 import os
+import sys
 import warnings
 import zlib
 
@@ -211,6 +222,18 @@ def build_stroke_samples(
     the hitter slot is picked from `kpts`/`scores` via `_slot_signal`, independent of
     which match-identity id happened to be recorded on that stroke-event row.
 
+    The random-fill negative path ALSO requires each draw to clear `PRESENCE_THR` at
+    the drawn `(frame, slot)` and produce a non-all-zero window (Fix round 2, item 1) --
+    a draw failing either check is discarded and re-drawn against the same try budget,
+    so a `none` negative is never a degenerate all-zeros/absent-player window (which
+    would otherwise be a trivial shortcut for the classifier to key on).
+
+    Also prints one summary line to stderr (median + count-below-1.5 of the
+    hitter/other energy ratio, over every hit where both slots were presence-eligible)
+    -- a cheap real-data diagnostic for whether `_slot_signal`'s energy-based selection
+    is actually discriminating between players or effectively coin-flipping (Task 12
+    is expected to consume this).
+
     Returns `(X, y, n_skipped)`: `X:(N,30,68) float32`, `y:(N,) int64`, and `n_skipped`
     (int) counting hits that were dropped because no slot cleared `PRESENCE_THR` at that
     frame, or the selected hitter's window was degenerately all-zero. If zero positives
@@ -221,6 +244,7 @@ def build_stroke_samples(
     T, P = kpts.shape[0], kpts.shape[1]
     Xs, ys, hit_idx = [], [], []
     n_skipped = 0
+    energy_ratios = []  # hitter/other energy ratio per two-candidate hit (see module docstring)
     for _, r in labels.iterrows():
         f = int(round(r["hit_frame"] * fps_scale))
         if not (0 <= f < T):
@@ -240,9 +264,22 @@ def build_stroke_samples(
         ys.append(ALL_CLASSES.index(r["stroke"]))
         if P == 2:
             other = 1 - hitter
+            if len(eligible) == 2:
+                energy_ratios.append(energy[hitter] / max(energy[other], 1e-9))
             if presence[other] >= PRESENCE_THR:
                 Xs.append(stroke_window(kpts[:, other], f))
                 ys.append(NONE_ID)
+
+    if energy_ratios:
+        arr = np.asarray(energy_ratios)
+        n_low = int((arr < 1.5).sum())
+        print(
+            f"[build_stroke_samples] hitter/other energy ratio over {len(arr)} "
+            f"two-candidate hit(s): median={float(np.median(arr)):.2f}, {n_low}/{len(arr)} "
+            "< 1.5 (a low ratio means the hitter selector is closer to coin-flipping "
+            "than discriminating for that hit)",
+            file=sys.stderr,
+        )
 
     n_pos = sum(1 for y in ys if y != NONE_ID)
     n_already_neg = sum(1 for y in ys if y == NONE_ID)
@@ -251,11 +288,17 @@ def build_stroke_samples(
     while n_neg_needed > 0 and tries < 10000:
         f = int(rng.integers(0, T))
         tries += 1
-        if all(abs(f - h) > guard for h in hit_idx):
-            p = int(rng.integers(0, P))
-            Xs.append(stroke_window(kpts[:, p], f))
-            ys.append(NONE_ID)
-            n_neg_needed -= 1
+        if not all(abs(f - h) > guard for h in hit_idx):
+            continue
+        p = int(rng.integers(0, P))
+        if scores[f, p].mean() < PRESENCE_THR:
+            continue
+        window = stroke_window(kpts[:, p], f)
+        if not np.any(window):
+            continue
+        Xs.append(window)
+        ys.append(NONE_ID)
+        n_neg_needed -= 1
     if n_neg_needed > 0:
         warnings.warn(
             f"build_stroke_samples: could not sample {n_neg_needed} more guard-distance "
@@ -293,8 +336,17 @@ def label_frame_to_pose_idx(
     un-trimmed source video legitimately has offset 0, but guessing that without any
     sidecar signal is worth flagging rather than silently assuming). `meta` is the pose
     npz's `meta` dict (must have `orig_fps` and `step`). `labels_fps` is the label's own
-    per-match resolved fps (`labels.parquet.fps`, see notes §(e)).
+    per-match resolved fps (`labels.parquet.fps`, see notes §(e)) -- must be a finite
+    positive number (raises `ValueError` otherwise, NIT fix, Fix round 2 item 3: a
+    zero/negative/NaN `labels_fps` would otherwise silently produce an infinite, NaN,
+    or sign-flipped `ratio` -- e.g. `orig_fps / 0.0` -- and corrupt every hit_frame this
+    match maps, rather than failing loudly at the actual bad input).
     """
+    if not (np.isfinite(labels_fps) and labels_fps > 0):
+        raise ValueError(
+            f"label_frame_to_pose_idx: labels_fps must be a finite positive number, "
+            f"got {labels_fps!r}"
+        )
     if sidecar is None:
         warnings.warn(
             "label_frame_to_pose_idx: no provenance sidecar given -- assuming "
@@ -355,10 +407,13 @@ def check_fps_consistency(meta: dict, labels_fps: float, match_id: str) -> None:
 def build_rally_frame_labels(n_frames: int, intervals) -> np.ndarray:
     """`(n_frames,) float32` play/no-play mask: 1.0 wherever a pose frame falls inside
     ANY `(start, end)` interval in `intervals` (union semantics -- overlapping rally
-    windows are not assumed disjoint). Each interval's ends are independently clamped to
-    `[0, n_frames]` (rounding to the nearest int) rather than relying on Python's
-    negative-index slice wraparound, which would silently misbehave for a very negative
-    start or end.
+    windows are not assumed disjoint). Each interval's `start` is independently clamped
+    UP from below to `0`, and its `end` (after the inclusive-end `+1` adjustment below)
+    is independently clamped DOWN from above to `n_frames` -- both rounded to the
+    nearest int first (NIT fix, Fix round 2, item 3: the previous wording here said
+    both ends were "clamped to `[0, n_frames]`", which glossed over each end only being
+    bounded on ONE side, not both) -- rather than relying on Python's negative-index
+    slice wraparound, which would silently misbehave for a very negative start or end.
 
     **Interval end convention: INCLUSIVE** (CONTROLLER RULING M1) -- both `start` and
     `end` themselves are considered "in play", matching `rally_end_frame`'s semantics as
@@ -400,14 +455,19 @@ def _match_rng(seed: int, match_id: str) -> np.random.Generator:
     return np.random.default_rng([seed, h])
 
 
-def main():
+def main(argv: list[str] | None = None):
+    """`argv=None` (default) parses `sys.argv` as usual for the CLI entry point;
+    tests can instead pass an explicit argv list to exercise the full pipeline against
+    a synthetic tmp-dir fixture without touching real repo paths or subprocessing
+    (Fix round 2, item 2 -- see `test_main_writes_expected_window_via_real_npz_and_
+    sidecar` in `training/tests/test_build_windows.py`)."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--labels", default="training/data/processed/labels.parquet")
     ap.add_argument("--poses", default="training/data/processed/poses")
     ap.add_argument("--videos-dir", default=DEFAULT_VIDEOS_DIR)
     ap.add_argument("--out-dir", default="training/data/processed")
     ap.add_argument("--seed", type=int, default=13)
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
     labels = pd.read_parquet(a.labels)
     SX, Sy, Sm, RX, Ry, Rm = [], [], [], [], [], []

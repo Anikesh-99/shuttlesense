@@ -1,3 +1,4 @@
+import json
 import warnings
 
 import numpy as np
@@ -10,6 +11,7 @@ from training.build_windows import (
     build_stroke_samples,
     check_fps_consistency,
     label_frame_to_pose_idx,
+    main,
     make_splits,
 )
 
@@ -195,6 +197,19 @@ def test_label_frame_to_pose_idx_missing_sidecar_defaults_offset_zero():
         assert len(w) == 1
 
 
+def test_label_frame_to_pose_idx_rejects_non_positive_or_nan_labels_fps():
+    # NIT fix (Fix round 2, item 3): a zero/negative/NaN labels_fps would otherwise
+    # silently produce an infinite/NaN/sign-flipped ratio instead of failing loudly.
+    sidecar = {"start_offset_s": 0}
+    meta = {"orig_fps": 30.0, "step": 1}
+    for bad in (0.0, -25.0, float("nan")):
+        try:
+            label_frame_to_pose_idx(100, sidecar, meta, labels_fps=bad)
+            assert False, f"expected ValueError for labels_fps={bad!r}"
+        except ValueError:
+            pass
+
+
 def test_check_fps_consistency_warns_on_large_absolute_mismatch():
     # A full 25-vs-30 nominal-rate mix-up (diff=5.0) must warn under the ADJUSTED I1
     # ruling's absolute tolerance (1e-3).
@@ -262,3 +277,52 @@ def test_main_wiring_offset_and_hitter_selection_end_to_end():
     assert n_skipped == 0
     positive = X[y == ALL_CLASSES.index("clear")][0]
     assert np.array_equal(positive, stroke_window(kpts[:, 1], 50))
+
+
+def test_main_writes_expected_window_via_real_npz_and_sidecar(tmp_path):
+    # Fix round 2, item 2: a REAL end-to-end test -- builds a synthetic pose npz,
+    # provenance sidecar, and labels.parquet on disk in a tmp dir, invokes main()
+    # itself (via an explicit argv list, not sys.argv), and asserts the WRITTEN
+    # stroke_windows.npz contains the expected window: hit_frame=18100, offset=600s,
+    # step=2, orig_fps=30 -> pose_idx=50, and slot 1 (the mover) is the hitter.
+    mid = "Some_Match_Id"
+    T = 200
+    kpts = _fixed_torso_kpts(T)
+    kpts[:, 1, 0, 1] = 0.1 * np.sin(np.arange(T))  # slot 1 is the mover -> real hitter
+    scores = np.ones((T, 2, 17), dtype=np.float32)
+    meta = {
+        "fps_sampled": 15.0, "orig_fps": 30.0, "width": 1280, "height": 720,
+        "n_frames": T, "step": 2, "n_source_frames": T * 2,
+    }
+
+    poses_dir = tmp_path / "poses"
+    poses_dir.mkdir()
+    np.savez_compressed(
+        poses_dir / f"{mid}.npz", kpts=kpts, scores=scores, meta=json.dumps(meta)
+    )
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    (videos_dir / f"{mid}.json").write_text(json.dumps({"start_offset_s": 600}))
+
+    labels_path = tmp_path / "labels.parquet"
+    pd.DataFrame({
+        "match_id": [mid], "video_file": [f"{mid}.mp4"], "fps": [30.0],
+        "rally_id": [1], "hit_frame": [18100], "player": [1], "stroke": ["clear"],
+        "rally_start_frame": [18070], "rally_end_frame": [18130], "rally_winner": [1],
+    }).to_parquet(labels_path, index=False)
+
+    out_dir = tmp_path / "out"
+    main([
+        "--labels", str(labels_path),
+        "--poses", str(poses_dir),
+        "--videos-dir", str(videos_dir),
+        "--out-dir", str(out_dir),
+    ])
+
+    written = np.load(out_dir / "stroke_windows.npz")
+    assert written["match"][0] == mid
+    clear_id = ALL_CLASSES.index("clear")
+    positives = written["X"][written["y"] == clear_id]
+    assert len(positives) == 1
+    assert np.array_equal(positives[0], stroke_window(kpts[:, 1], 50))

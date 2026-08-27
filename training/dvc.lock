@@ -24,8 +24,8 @@ stages:
     deps:
     - path: build_windows.py
       hash: md5
-      md5: e99768ca7f31d325e0c04c3d38fdc4f1
-      size: 26359
+      md5: 074965b57b9f1eab0d9e55c0f4e883ee
+      size: 30156
     - path: data/processed/labels.parquet
       hash: md5
       md5: 0465677bb53fe8c90e37f8d5af37d08a
