@@ -24,10 +24,13 @@
 # -- that directory also holds the (large, NOT git-tracked, per `.gitignore`) source
 # .mp4 files, which shouldn't gate this stage's cache-hit/reproducibility check and
 # wouldn't even exist after a fresh clone without a separate video-download step.
-# CAVEAT: dvc.yaml `deps` entries are static paths, not glob patterns -- there is
-# currently exactly one sidecar JSON in the repo; whoever adds a new match's video
-# (and its `<match_id>.json` sidecar) under `data/raw/videos/` must also add its path
-# to this stage's `deps` list, or `windows` won't be re-triggered by that new sidecar.
+# CAVEAT: dvc.yaml `deps` entries are static paths, not glob patterns -- Task 12a listed
+# all 12 sidecar JSONs in the repo (as of its bulk video acquisition run) explicitly,
+# rather than depending on the whole `data/raw/videos` directory pattern, so a spurious
+# touch of an unrelated file in that dir doesn't force a needless `windows` re-run.
+# Whoever adds a new match's video (and its `<match_id>.json` sidecar) under
+# `data/raw/videos/` must also add its path to this stage's `deps` list, or `windows`
+# won't be re-triggered by that new sidecar.
 stages:
   prepare:
     cmd: python prepare_shuttleset.py --raw-dir data/raw/shuttleset --out data/processed/labels.parquet
@@ -36,7 +39,18 @@ stages:
   windows:
     cmd: python build_windows.py --labels data/processed/labels.parquet --poses data/processed/poses --videos-dir data/raw/videos --out-dir data/processed
     deps: [build_windows.py, data/processed/labels.parquet, data/processed/poses,
-           data/raw/videos/An_Se_Young_Ratchanok_Intanon_YONEX_Thailand_Open_2021_QuarterFinals.json]
+           data/raw/videos/An_Se_Young_Ratchanok_Intanon_YONEX_Thailand_Open_2021_QuarterFinals.json,
+           data/raw/videos/Anders_Antonsen_Sameer_Verma_TOYOTA_THAILAND_OPEN_2021_QuarterFinals.json,
+           data/raw/videos/Anders_Antonsen_Viktor_Axelsen_HSBC_BWF_WORLD_TOUR_FINALS_2020_Finals.json,
+           data/raw/videos/Carolina_Marin_An_Se_Young_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals.json,
+           data/raw/videos/CHOU_Tien_Chen_Anders_ANTONSEN_Fuzhou_Open_2019_Semi-finals.json,
+           data/raw/videos/CHOU_Tien_Chen_Jonatan_CHRISTIE_Sudirman_Cup_2019_Quarter-finals.json,
+           data/raw/videos/Evgeniya_Kosetskaya_Michelle_Li_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals.json,
+           data/raw/videos/Hans-Kristian_Solberg_Vittinghus_Anders_Antonsen_TOYOTA_THAILAND_OPEN_2021_SemiFinals.json,
+           data/raw/videos/Kento_MOMOTA_CHOU_Tien_Chen_Denmark_Open_2018_Finals.json,
+           data/raw/videos/Kento_MOMOTA_CHOU_Tien_Chen_Fuzhou_Open_2019_Finals.json,
+           data/raw/videos/Viktor_AXELSEN_CHEN_Long_Malaysia_Masters_2020_QuarterFinals.json,
+           data/raw/videos/Viktor_Axelsen_Jonatan_Christie_YONEX_Thailand_Open_2021_QuarterFinals.json]
     outs: [data/processed/stroke_windows.npz,
            data/processed/rally_frames.npz,
            data/processed/splits.json]

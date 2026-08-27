@@ -1,0 +1,6 @@
+{
+  "url": "https://www.youtube.com/watch?v=IDSr0z5f52k",
+  "download_section": "*17:20-20:20",
+  "start_offset_s": 1040,
+  "note": "yt-dlp --download-sections trims relative to the full match video hosted at `url`. `start_offset_s` must be added to any in-clip sampled-frame time (frame_index_in_clip / meta['fps_sampled']) before it can be compared to a ShuttleSet label's frame_num (which indexes the full match video, not this trimmed clip). DEVIATION (Task 12a, wall-clock budget): originally downloaded as a 360s (6-min) segment, but per-clip pose-extraction time was trending well past the ~3h budget (successive clips took 1725s/1836s/2253s/2829s, an increasing trend), so this clip's source mp4 was trimmed in-place (ffmpeg -t 180 -c copy, same start_offset_s) to 180s (3 min) before extraction ran on it, per the controller's 'reduce remaining segments to 3 minutes' fallback ruling."
+}

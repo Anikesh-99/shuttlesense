@@ -32,24 +32,79 @@ stages:
       size: 302222
     - path: data/processed/poses
       hash: md5
-      md5: 3042d0ac765482ddd0bd7176f30d098f.dir
-      size: 287382
-      nfiles: 1
+      md5: f01165de054a7f1f4488d0146f2a9231.dir
+      size: 13903717
+      nfiles: 12
     - path: 
         data/raw/videos/An_Se_Young_Ratchanok_Intanon_YONEX_Thailand_Open_2021_QuarterFinals.json
       hash: md5
-      md5: c9e2000a58ee4bedc014c4f9104a938f
-      size: 575
+      md5: 113e07c1d52cda653d98d6ee728ead44
+      size: 446
+    - path: 
+        data/raw/videos/Anders_Antonsen_Sameer_Verma_TOYOTA_THAILAND_OPEN_2021_QuarterFinals.json
+      hash: md5
+      md5: d403fdb0b87a0f5eaf621d0dc4dda371
+      size: 448
+    - path: 
+        data/raw/videos/Anders_Antonsen_Viktor_Axelsen_HSBC_BWF_WORLD_TOUR_FINALS_2020_Finals.json
+      hash: md5
+      md5: 315f5bb3d9ec1befb72cc74cd545696e
+      size: 448
+    - path: 
+        data/raw/videos/CHOU_Tien_Chen_Anders_ANTONSEN_Fuzhou_Open_2019_Semi-finals.json
+      hash: md5
+      md5: 42a6aa138469ee0463d1a6f45f9922b8
+      size: 446
+    - path: 
+        data/raw/videos/CHOU_Tien_Chen_Jonatan_CHRISTIE_Sudirman_Cup_2019_Quarter-finals.json
+      hash: md5
+      md5: 495bba18b2d6f4e93d2292a878712c2d
+      size: 446
+    - path: 
+        data/raw/videos/Carolina_Marin_An_Se_Young_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals.json
+      hash: md5
+      md5: fdea7c83c4891f32c35a43787d27638d
+      size: 447
+    - path: 
+        data/raw/videos/Evgeniya_Kosetskaya_Michelle_Li_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals.json
+      hash: md5
+      md5: 711884ba522320ef89571b4006ffec13
+      size: 896
+    - path: 
+        data/raw/videos/Hans-Kristian_Solberg_Vittinghus_Anders_Antonsen_TOYOTA_THAILAND_OPEN_2021_SemiFinals.json
+      hash: md5
+      md5: b263ab60b0e6266a1f424cd1809ccdae
+      size: 893
+    - path: 
+        data/raw/videos/Kento_MOMOTA_CHOU_Tien_Chen_Denmark_Open_2018_Finals.json
+      hash: md5
+      md5: 68878e9851a1c6cbac6bae30f0aa7946
+      size: 895
+    - path: 
+        data/raw/videos/Kento_MOMOTA_CHOU_Tien_Chen_Fuzhou_Open_2019_Finals.json
+      hash: md5
+      md5: 4c6db9eed3010154ea0679efbf099ee4
+      size: 895
+    - path: 
+        data/raw/videos/Viktor_AXELSEN_CHEN_Long_Malaysia_Masters_2020_QuarterFinals.json
+      hash: md5
+      md5: 0c12f96c202ed0e33e1930a31d366584
+      size: 896
+    - path: 
+        data/raw/videos/Viktor_Axelsen_Jonatan_Christie_YONEX_Thailand_Open_2021_QuarterFinals.json
+      hash: md5
+      md5: 92adef08a9e2d355d0e62f09a9879411
+      size: 894
     outs:
     - path: data/processed/rally_frames.npz
       hash: md5
-      md5: 50292086f00e48da34ef1c569734cbdb
-      size: 14434
+      md5: 4893285f0a97d03e70b55f711e0bdce5
+      size: 681599
     - path: data/processed/splits.json
       hash: md5
       md5: c0e26ea254035b081423525ed61bbbad
       size: 3378
     - path: data/processed/stroke_windows.npz
       hash: md5
-      md5: c3e9f1de6c6c372295f01adb3bd86079
-      size: 169761
+      md5: 3c0ded668bea296f06e26aadcbed8af3
+      size: 8812324

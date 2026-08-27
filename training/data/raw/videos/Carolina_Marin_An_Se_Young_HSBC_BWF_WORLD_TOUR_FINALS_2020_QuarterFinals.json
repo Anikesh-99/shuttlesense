@@ -1,6 +1,6 @@
 {
-  "url": "https://www.youtube.com/watch?v=gloiZ_gTJaE",
-  "download_section": "*7:06-13:06",
-  "start_offset_s": 426,
+  "url": "https://www.youtube.com/watch?v=OH6dnTXhZy4",
+  "download_section": "*13:38-19:38",
+  "start_offset_s": 818,
   "note": "yt-dlp --download-sections trims relative to the full match video hosted at `url`. `start_offset_s` must be added to any in-clip sampled-frame time (frame_index_in_clip / meta['fps_sampled']) before it can be compared to a ShuttleSet label's frame_num (which indexes the full match video, not this trimmed clip)."
 }

@@ -1,6 +1,6 @@
 outs:
-- md5: 3042d0ac765482ddd0bd7176f30d098f.dir
-  size: 287382
-  nfiles: 1
+- md5: f01165de054a7f1f4488d0146f2a9231.dir
+  size: 13903717
+  nfiles: 12
   hash: md5
   path: poses
