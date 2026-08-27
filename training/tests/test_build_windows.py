@@ -195,22 +195,33 @@ def test_label_frame_to_pose_idx_missing_sidecar_defaults_offset_zero():
         assert len(w) == 1
 
 
-def test_check_fps_consistency_warns_on_large_relative_mismatch():
+def test_check_fps_consistency_warns_on_large_absolute_mismatch():
+    # A full 25-vs-30 nominal-rate mix-up (diff=5.0) must warn under the ADJUSTED I1
+    # ruling's absolute tolerance (1e-3).
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         check_fps_consistency({"orig_fps": 30.0}, labels_fps=25.0, match_id="m1")
         assert len(w) == 1
 
 
-def test_check_fps_consistency_silent_within_relative_tolerance():
-    # 30 vs 29.97 (diff=0.03) is within the ruled literal tolerance (0.002*30=0.06) --
-    # this documents the ruled formula's actual behavior (it does NOT, in fact, flag
-    # the real-world 29.97-vs-30 nominal-rate gap; see build_windows.py's
-    # check_fps_consistency docstring and task-8-report.md "Fix round 1" for the
-    # flagged discrepancy against the ruling's parenthetical claim).
+def test_check_fps_consistency_warns_on_2997_vs_30_snap_mismatch():
+    # ADJUSTED I1 ruling: the absolute tolerance (1e-3) is tight enough to actually
+    # catch the real 29.97-vs-30 nominal-rate gap (diff=0.03), unlike Fix round 1's
+    # first-pass relative tolerance (0.002*orig_fps=0.06), which was looser than this
+    # gap and silently missed it -- see build_windows.py's check_fps_consistency
+    # docstring and task-8-report.md "Fix round 1" / "Fix round 2" for that history.
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         check_fps_consistency({"orig_fps": 30.0}, labels_fps=29.97, match_id="m1")
+        assert len(w) == 1
+
+
+def test_check_fps_consistency_silent_within_float_noise():
+    # A tiny sub-tolerance difference (well below 1e-3), representative of float
+    # round-off rather than a genuine label/video fps disagreement, must stay silent.
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        check_fps_consistency({"orig_fps": 30.0}, labels_fps=30.0 + 1e-5, match_id="m1")
         assert len(w) == 0
 
 

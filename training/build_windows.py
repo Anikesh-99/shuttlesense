@@ -158,7 +158,7 @@ from shuttlesense_core.features import (
 from shuttlesense_core.schemas import ALL_CLASSES, NONE_CLASS
 
 DEFAULT_VIDEOS_DIR = "training/data/raw/videos"
-FPS_CONSISTENCY_REL_TOL = 0.002  # relative tolerance, fraction of orig_fps (I1 RULING)
+FPS_CONSISTENCY_ABS_TOL = 1e-3  # absolute fps tolerance, frames/sec (ADJUSTED I1 RULING)
 NEG_GUARD_FRAMES = 15  # >= ~1s at 15fps sampled; random negatives must stay this far from every hit
 PRESENCE_THR = 0.3  # matches extract_poses.assign_players's own score gate
 ENERGY_HALF_WINDOW = 3  # +/- frames around a hit used for the hitter-selection energy signal
@@ -322,28 +322,32 @@ def load_sidecar(match_id: str, videos_dir: str = DEFAULT_VIDEOS_DIR) -> dict | 
 
 def check_fps_consistency(meta: dict, labels_fps: float, match_id: str) -> None:
     """Warn (do not raise) if the pose npz's `orig_fps` disagrees with the label-derived
-    per-match fps by more than `FPS_CONSISTENCY_REL_TOL` * `orig_fps` (a RELATIVE
-    tolerance -- CONTROLLER RULING I1, replacing a fixed 0.1-frame absolute tolerance) --
-    a mismatch means the video reconciliation described in
-    `training/notes/shuttleset-format.md` "Label-to-video alignment" hasn't held for this
-    match, and frame-level alignment downstream should be treated with suspicion.
+    per-match fps by more than `FPS_CONSISTENCY_ABS_TOL` (ADJUSTED CONTROLLER RULING I1,
+    second pass -- an ABSOLUTE tolerance, replacing both the original fixed 0.1-frame
+    absolute tolerance AND the first-pass relative-tolerance attempt, whose `0.002 *
+    orig_fps` constant turned out to be arithmetically looser than the real 29.97-vs-30
+    gap it was meant to catch, per Fix round 1's flagged discrepancy).
 
-    NOTE (flagged for reviewer, not silently "corrected"): the ruled tolerance constant
-    (`FPS_CONSISTENCY_REL_TOL = 0.002`, i.e. 0.2% of `orig_fps`) is LOOSER than the real
-    29.97-vs-30 gap (30 - 29.97 = 0.03, which is 0.1% of 30 -- half the 0.2% threshold).
-    So this exact literal formula, as ruled, does NOT actually warn on a 29.97-vs-30
-    mismatch (0.03 < 0.002*30 = 0.06); it only fires for larger mismatches (e.g. a
-    25-vs-30 mix-up, 5 >> 0.06). Implemented exactly as specified rather than silently
-    tightened, since the constant was an explicit numeric ruling -- see task-8-report.md
-    "Fix round 1" for this discrepancy called out to the reviewer.
+    Rationale for why an absolute (not relative) tolerance is correct here, and why it
+    can be this tight: `label_frame_to_pose_idx`'s `orig_fps / labels_fps` ratio term
+    (CONTROLLER RULING I1) already makes the hit-frame -> pose-index MAPPING exact for
+    *any* labels/video fps pair -- correctness of frame alignment does not depend on
+    `orig_fps` and `labels_fps` agreeing. This check is therefore purely INFORMATIONAL:
+    it flags an *unexpected* disagreement between the label-derived fps and the pose
+    npz's measured fps (e.g. a wrong sidecar, a mismatched video file, or a fps-
+    resolution bug upstream), not a correctness precondition for the mapping itself.
+    Because it's just a diagnostic signal, a small ABSOLUTE tolerance (`1e-3` fps) is
+    appropriate: it's comfortably above float round-off noise (`orig_fps`/`labels_fps`
+    are typically snapped to 2-3 decimal places, see notes §(e)) while still catching
+    every real nominal-rate mismatch in this dataset -- both the small 29.97-vs-30 gap
+    (`|30 - 29.97| = 0.03 > 1e-3`) and a full 25-vs-30 mix-up (`5.0 > 1e-3`).
     """
     orig_fps = float(meta["orig_fps"])
-    tol = FPS_CONSISTENCY_REL_TOL * orig_fps
-    if abs(orig_fps - labels_fps) > tol:
+    if abs(orig_fps - labels_fps) > FPS_CONSISTENCY_ABS_TOL:
         warnings.warn(
             f"match {match_id!r}: pose meta orig_fps={orig_fps} disagrees with labels "
-            f"fps={labels_fps} by more than {FPS_CONSISTENCY_REL_TOL * 100:.2f}% of "
-            "orig_fps -- frame alignment for this match may be unreliable",
+            f"fps={labels_fps} by more than {FPS_CONSISTENCY_ABS_TOL} fps -- frame "
+            "alignment for this match may be unreliable",
             stacklevel=2,
         )
 
