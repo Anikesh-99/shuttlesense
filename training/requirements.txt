@@ -2,3 +2,6 @@ dvc[gdrive]>=3.48
 pandas>=2.2
 pyarrow>=15
 yt-dlp>=2025.1.1
+rtmlib>=0.0.13
+onnxruntime>=1.17
+opencv-python-headless
