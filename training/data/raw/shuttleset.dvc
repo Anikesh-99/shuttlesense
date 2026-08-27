@@ -1,0 +1,6 @@
+outs:
+- md5: 6d46c0d58b35b6edb5131c6f46b0b48e.dir
+  size: 4210810
+  nfiles: 107
+  hash: md5
+  path: shuttleset

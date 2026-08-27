@@ -3,7 +3,9 @@
 __pycache__/
 *.pyc
 backend/models/
-training/data/
+training/data/**
+!training/data/**/
+!training/data/**/*.dvc
 wandb/
 .dvc/cache
 *.egg-info/
