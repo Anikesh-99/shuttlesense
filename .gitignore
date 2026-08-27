@@ -6,6 +6,7 @@ backend/models/
 training/data/**
 !training/data/**/
 !training/data/**/*.dvc
+!training/data/raw/.gitignore
 wandb/
 .dvc/cache
 *.egg-info/
