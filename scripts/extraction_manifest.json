@@ -1,0 +1,194 @@
+[
+  {
+    "match_id": "An_Se_Young_Ratchanok_Intanon_YONEX_Thailand_Open_2021_QuarterFinals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=gloiZ_gTJaE",
+    "download_section": "*7:06-13:06",
+    "start_offset_s": 426,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      12780,
+      23580
+    ],
+    "stroke_density": 120,
+    "notes": [
+      "Supersedes the Task 7 60s/20-stroke verification clip for this match (re-downloaded at a denser 360s window); a yt-dlp file-already-exists skip bug was caught here during Task 12a (task-12a-report.md Section 2), which is what Fix Round 1 item 1 (bulk_download.py force-overwrite + ffprobe duration assertion) closes for future runs."
+    ]
+  },
+  {
+    "match_id": "Anders_Antonsen_Sameer_Verma_TOYOTA_THAILAND_OPEN_2021_QuarterFinals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=YP8YlZkrQq8",
+    "download_section": "*21:41-27:41",
+    "start_offset_s": 1301,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      39030,
+      49831
+    ],
+    "stroke_density": 125
+  },
+  {
+    "match_id": "Anders_Antonsen_Viktor_Axelsen_HSBC_BWF_WORLD_TOUR_FINALS_2020_Finals",
+    "split": "val",
+    "url": "https://www.youtube.com/watch?v=j7_cjmJDYNU",
+    "download_section": "*24:48-30:48",
+    "start_offset_s": 1488,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      44640,
+      55441
+    ],
+    "stroke_density": 122
+  },
+  {
+    "match_id": "CHOU_Tien_Chen_Anders_ANTONSEN_Fuzhou_Open_2019_Semi-finals",
+    "split": "test",
+    "url": "https://www.youtube.com/watch?v=32j2Tg64Zbg",
+    "download_section": "*6:52-12:52",
+    "start_offset_s": 412,
+    "orig_fps": 25.0,
+    "labels_fps": 25.0,
+    "chosen_window_orig_frames": [
+      10300,
+      19300
+    ],
+    "stroke_density": 129
+  },
+  {
+    "match_id": "CHOU_Tien_Chen_Jonatan_CHRISTIE_Sudirman_Cup_2019_Quarter-finals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=8E98Gpk-fOM",
+    "download_section": "*6:56-12:56",
+    "start_offset_s": 416,
+    "orig_fps": 25.0,
+    "labels_fps": 25.0,
+    "chosen_window_orig_frames": [
+      10400,
+      19401
+    ],
+    "stroke_density": 111,
+    "notes": [
+      "Alignment gate for this match originally passed on indirect evidence only (scoreboard progression); Fix Round 1 item 3 performed a direct re-check (5 labeled smash/clear hits mapped + rendered) and confirmed direct PASS -- see task-12a-report.md Fix Round 1 section."
+    ]
+  },
+  {
+    "match_id": "Carolina_Marin_An_Se_Young_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=OH6dnTXhZy4",
+    "download_section": "*13:38-19:38",
+    "start_offset_s": 818,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      24540,
+      35341
+    ],
+    "stroke_density": 126
+  },
+  {
+    "match_id": "Evgeniya_Kosetskaya_Michelle_Li_HSBC_BWF_WORLD_TOUR_FINALS_2020_QuarterFinals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=IDSr0z5f52k",
+    "download_section": "*17:20-20:20",
+    "start_offset_s": 1040,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      31200,
+      36601
+    ],
+    "stroke_density": 64,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  },
+  {
+    "match_id": "Hans-Kristian_Solberg_Vittinghus_Anders_Antonsen_TOYOTA_THAILAND_OPEN_2021_SemiFinals",
+    "split": "test",
+    "url": "https://www.youtube.com/watch?v=D27aAZvuRTw",
+    "download_section": "*6:39-9:39",
+    "start_offset_s": 399,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      11970,
+      17371
+    ],
+    "stroke_density": 67,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  },
+  {
+    "match_id": "Kento_MOMOTA_CHOU_Tien_Chen_Denmark_Open_2018_Finals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=SYyvDrUgClc",
+    "download_section": "*13:20-16:20",
+    "start_offset_s": 800,
+    "orig_fps": 25.0,
+    "labels_fps": 25.0,
+    "chosen_window_orig_frames": [
+      20000,
+      24501
+    ],
+    "stroke_density": 80,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  },
+  {
+    "match_id": "Kento_MOMOTA_CHOU_Tien_Chen_Fuzhou_Open_2019_Finals",
+    "split": "train",
+    "url": "https://www.youtube.com/watch?v=O669aZhH0LI",
+    "download_section": "*11:37-14:37",
+    "start_offset_s": 697,
+    "orig_fps": 25.0,
+    "labels_fps": 25.0,
+    "chosen_window_orig_frames": [
+      17425,
+      21925
+    ],
+    "stroke_density": 116,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  },
+  {
+    "match_id": "Viktor_AXELSEN_CHEN_Long_Malaysia_Masters_2020_QuarterFinals",
+    "split": "val",
+    "url": "https://www.youtube.com/watch?v=YmW83aQFADg",
+    "download_section": "*27:03-30:03",
+    "start_offset_s": 1623,
+    "orig_fps": 25.0,
+    "labels_fps": 25.0,
+    "chosen_window_orig_frames": [
+      40575,
+      45075
+    ],
+    "stroke_density": 66,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  },
+  {
+    "match_id": "Viktor_Axelsen_Jonatan_Christie_YONEX_Thailand_Open_2021_QuarterFinals",
+    "split": "test",
+    "url": "https://www.youtube.com/watch?v=RRI_k2KZgOM",
+    "download_section": "*9:09-12:09",
+    "start_offset_s": 549,
+    "orig_fps": 30.0,
+    "labels_fps": 30.0,
+    "chosen_window_orig_frames": [
+      16470,
+      21871
+    ],
+    "stroke_density": 70,
+    "notes": [
+      "Fix Round 1 (wall-clock budget deviation, task-12a-report.md Section 4): originally planned/downloaded as a 360s window, trimmed in-place to 180s before extraction; chosen_window_orig_frames/stroke_density reflect the ACTUAL retained 180s window, not the original 360s plan."
+    ]
+  }
+]
