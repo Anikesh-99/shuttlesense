@@ -258,9 +258,17 @@ task-owner judgment call):
 網前球 → net         放小球 → net        擋小球 → net        勾球 → net
 挑球 → lift          防守回挑 → lift
 平球 → drive         小平球 → drive       推球 → drive        防守回抽 → drive
+後場抽平球 → drive (addendum, see below)
 發短球 → serve       發長球 → serve
 未知球種 → DROPPED (map to None; log/count, do not silently discard)
 ```
+
+**Addendum (controller ruling, post-review):** `後場抽平球` ("back-court drive", 473 occurrences,
+flagged as unmapped below when this section was first written) has been explicitly ruled by the
+controller to map to `drive`, alongside `平球`/`小平球`/`推球`/`防守回抽`. This closes the
+19-value coverage gap noted below; the mapping table above and the per-class counts have been
+updated accordingly. The "flag, not a guess" caveat immediately below is retained as a historical
+record of why this wasn't guessed at initially, not as a live open question.
 
 **Flag, not a guess: `網前球` never appears in the real data.** Cross-checking the controller's
 19 mapping keys against the 19 real `type` values found in the CSVs (§(b)) shows a mismatch:
@@ -270,20 +278,20 @@ task-owner judgment call):
   ("back-court drive", 473 occurrences, 1.3% of all strokes) — present in every inspection in
   §(b) but not addressable by any key in the controller's mapping.
 
-Per instruction, this is flagged rather than guessed at: **`後場抽平球` is left UNMAPPED** in the
-counts below (not silently folded into `drive` even though "back-court drive" sounds adjacent to
-the `drive` bucket — that would be guessing at a controller ruling that didn't actually cover it).
-Route this back to the controller for an explicit decision before Task 6 relies on full 8-class
-coverage of the dataset.
+At the time this section was first written, `後場抽平球` was left UNMAPPED pending an explicit
+controller decision (not silently folded into `drive`, even though "back-court drive" sounds
+adjacent to that bucket, since that would have been guessing at a ruling that didn't actually
+cover it). **Resolved by the addendum above: `後場抽平球` → `drive`.** The counts below reflect
+that resolution (RESOLVED, no longer an open unmapped-type gap).
 
-**Per-canonical-class counts, applying the ruling exactly as given (real value_counts, all 104
+**Per-canonical-class counts, applying the ruling + addendum (real value_counts, all 104
 files, 36,484 rows):**
 ```
 canonical
 net      11281
 lift      5632
 smash     4746
-drive     4099
+drive     4572
 drop      3500
 clear     2922
 serve     2424
@@ -291,10 +299,9 @@ serve     2424
 Plus:
 - `未知球種` (DROPPED per ruling): **1,407** rows -> mapped to `None`, logged, excluded from the
   8-class counts above.
-- `後場抽平球` (UNMAPPED, flagged, not in the controller's key list): **473** rows -> currently
-  unassigned to any canonical class; do not guess, escalate.
-- Sum check: 11281+5632+4746+4099+3500+2922+2424 (mapped) + 1407 (dropped) + 473 (unmapped) =
-  36,484 = total row count. Every row accounted for, none double-counted.
+- Sum check: 11281+5632+4746+4572+3500+2922+2424 (mapped, total 35077) + 1407 (dropped) =
+  36,484 = total row count. Every row accounted for, none double-counted; the 19->8 mapping now
+  has full coverage of the real vocabulary (`未知球種` dropped by design, all other 18 mapped).
 
 ## (c) Rally boundaries + hit frame/time encoding
 
@@ -487,10 +494,11 @@ of potential drift between the label's frame numbering and a freshly downloaded 
   fired for 2/104 sets, match ids 13 and 27); then take the letter that won the majority of sets
   in the match (2 of 2, 2 of 3, or 3 of 3) as the match's derived winner-letter. **If `'A'` truly
   always denotes the match winner, this derived letter must equal `'A'` for every one of the 44
-  matches — and it does: 44/44.** Full per-match breakdown (set-by-set winner letters) is in the
-  "Fix round 1" section of `task-5-report.md`; every match's derived winner is `'A'`, zero
-  failures, so the A=winner / B=loser convention is confirmed at 100% and can be relied upon
-  in Task 6 without a controller flag.
+  matches — and it does: 44/44.** So the A=winner / B=loser convention is confirmed at 100% and
+  can be relied upon in Task 6 without a controller flag. Compressed evidence (the full
+  per-match breakdown lived in a now-gitignored scratchpad path, so it's summarized here
+  instead): 44/44; per-set letters reproducible via the method above run against
+  `training/data/raw/shuttleset/set/*/set*.csv`.
 - **Rally winner**: `getpoint_player` column, `'A'`/`'B'`, populated only on the rally's final
   stroke row (see (c) for the 174-rally exception where it's missing entirely, and the 1-row
   quirk where it appears mid-rally). Use the same A-vs-B, real-name resolution rule as for
@@ -525,9 +533,8 @@ of potential drift between the label's frame numbering and a freshly downloaded 
 - The `CoachAI-Challenge-IJCAI2023/ShuttleSet22/` superset directory in the same repo was noticed
   but not inspected column-by-column — do not assume it matches this schema exactly if it's used
   later.
-- **`後場抽平球` (473 rows, 1.3%) has no canonical-class mapping** in the controller's ruling —
-  flagged above, needs an explicit controller decision before Task 6 can claim full 8-class
-  coverage of the dataset.
+- ~~`後場抽平球` (473 rows, 1.3%) has no canonical-class mapping in the controller's ruling~~ —
+  RESOLVED: controller addendum maps it to `drive` (see the canonical mapping section above).
 - fps resolution for the one 29.97 match (id=12) is based on label-derived regression only; it has
   not been cross-checked against `ffprobe` of an actual downloaded video (that match also has no
   URL, so it cannot be downloaded at all — its fps label should be treated as unconfirmed).
