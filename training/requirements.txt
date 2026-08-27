@@ -5,7 +5,7 @@ yt-dlp>=2025.1.1
 rtmlib>=0.0.13
 onnxruntime>=1.17
 opencv-python-headless
-torch>=2.2
+torch>=2.6
 onnx>=1.15
 wandb>=0.17
 scikit-learn>=1.4

@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import numpy as np
+import pytest
 import torch
 
 from training.models import RallyGRU, StrokeTCN
@@ -50,15 +51,24 @@ def test_stroke_tcn_eval_batch_one():
     assert out.shape == (1, 8)
 
 
-def _onnx_export_and_check(model, x, name):
-    onnxruntime = pytest_importorskip_onnxruntime()
-    if onnxruntime is None:
-        return
+def test_stroke_tcn_param_count():
+    m = StrokeTCN()
+    assert sum(p.numel() for p in m.parameters()) == 146_632
+
+
+def test_rally_gru_param_count():
+    m = RallyGRU()
+    assert sum(p.numel() for p in m.parameters()) == 7_361
+
+
+def _onnx_export_and_check(onnxruntime, model, x, name):
     model.eval()
     with torch.no_grad():
         expected = model(x).numpy()
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, name)
+        # torch>=2.6: default dynamo exporter requires onnxscript; legacy exporter used
+        # here — Task 13's export script must do the same or add onnxscript.
         torch.onnx.export(
             model,
             x,
@@ -75,22 +85,15 @@ def _onnx_export_and_check(model, x, name):
         np.testing.assert_allclose(actual, expected, atol=1e-4)
 
 
-def pytest_importorskip_onnxruntime():
-    try:
-        import onnxruntime
-
-        return onnxruntime
-    except ImportError:
-        return None
-
-
 def test_stroke_tcn_onnx_export():
+    onnxruntime = pytest.importorskip("onnxruntime")
     torch.manual_seed(0)
     m = StrokeTCN()
-    _onnx_export_and_check(m, torch.randn(4, 30, 68), "stroke_tcn.onnx")
+    _onnx_export_and_check(onnxruntime, m, torch.randn(4, 30, 68), "stroke_tcn.onnx")
 
 
 def test_rally_gru_onnx_export():
+    onnxruntime = pytest.importorskip("onnxruntime")
     torch.manual_seed(0)
     m = RallyGRU()
-    _onnx_export_and_check(m, torch.randn(2, 100, 4), "rally_gru.onnx")
+    _onnx_export_and_check(onnxruntime, m, torch.randn(2, 100, 4), "rally_gru.onnx")
