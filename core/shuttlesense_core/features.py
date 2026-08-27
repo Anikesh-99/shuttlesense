@@ -18,6 +18,13 @@ Contracts (load-bearing for downstream tasks 8 and 15):
   read the same source frame (constant position, zero velocity) until the
   index enters the valid range.
 
+  **`stroke_window` does NOT consult confidence scores at all** -- it will
+  happily build a window from an all-zero (absent/unconfident) player slot if
+  handed one; it has no way to know a slot is meaningless. Callers that pick
+  *which* of a match's 2 pose slots to window (e.g.
+  `training/build_windows.py`'s hitter-selection logic) MUST gate on
+  `scores`/presence themselves *before* calling this, never after.
+
 - `rally_frame_features`: for a `(T,2,17,2)` keypoints array and a
   `(T,2,17)` confidence-scores array, returns `(T,4)` float32 with column
   order `[energy_p0, energy_p1, conf_p0, conf_p1]`, where `energy_p*` is the

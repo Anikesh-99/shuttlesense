@@ -5,21 +5,38 @@
 # nonexistent `training/training/build_windows.py` (confirmed via `dvc status`, which
 # reported every dep/out as "deleted" until this was fixed).
 #
-# `cmd` also runs with cwd set to this file's directory (training/), so it invokes
-# the venv's python via a `../`-relative path (there's no "python" on PATH outside the
-# venv on this machine, and `dvc repro`'s subprocess doesn't inherit venv activation)
-# and passes explicit training/-relative --raw-dir/--out/--labels/--poses/--out-dir
-# flags matching the deps/outs above, rather than relying on each script's own
-# argparse defaults (which are repo-root-relative, since both scripts are normally
-# invoked directly from the repo root -- see their own --help).
+# `cmd` ALSO runs with cwd set to this file's directory (training/), so it passes
+# explicit training/-relative --raw-dir/--out/--labels/--poses/--videos-dir/--out-dir
+# flags matching the deps/outs below, rather than relying on each script's own argparse
+# defaults (which are repo-root-relative, since both scripts are normally invoked
+# directly from the repo root -- see their own --help).
+#
+# `cmd` invokes plain `python` (CONTROLLER RULING I2) -- this REQUIRES the project venv
+# to be active first (`source ../.venv/bin/activate` from this directory, or
+# `source .venv/bin/activate` from the repo root), since this machine has no bare
+# `python` outside the venv (only `python3`) and `dvc repro`'s subprocess does not
+# inherit venv activation on its own. Run the whole pipeline from the repo root as:
+#
+#     source .venv/bin/activate && dvc repro training/dvc.yaml
+#
+# The `windows` stage's `data/raw/videos` dependency is scoped to just the provenance
+# sidecar JSON file(s) (CONTROLLER RULING I3), not the whole `data/raw/videos` directory
+# -- that directory also holds the (large, NOT git-tracked, per `.gitignore`) source
+# .mp4 files, which shouldn't gate this stage's cache-hit/reproducibility check and
+# wouldn't even exist after a fresh clone without a separate video-download step.
+# CAVEAT: dvc.yaml `deps` entries are static paths, not glob patterns -- there is
+# currently exactly one sidecar JSON in the repo; whoever adds a new match's video
+# (and its `<match_id>.json` sidecar) under `data/raw/videos/` must also add its path
+# to this stage's `deps` list, or `windows` won't be re-triggered by that new sidecar.
 stages:
   prepare:
-    cmd: ../.venv/bin/python prepare_shuttleset.py --raw-dir data/raw/shuttleset --out data/processed/labels.parquet
+    cmd: python prepare_shuttleset.py --raw-dir data/raw/shuttleset --out data/processed/labels.parquet
     deps: [prepare_shuttleset.py, data/raw/shuttleset]
     outs: [data/processed/labels.parquet]
   windows:
-    cmd: ../.venv/bin/python build_windows.py --labels data/processed/labels.parquet --poses data/processed/poses --videos-dir data/raw/videos --out-dir data/processed
-    deps: [build_windows.py, data/processed/labels.parquet, data/processed/poses, data/raw/videos]
+    cmd: python build_windows.py --labels data/processed/labels.parquet --poses data/processed/poses --videos-dir data/raw/videos --out-dir data/processed
+    deps: [build_windows.py, data/processed/labels.parquet, data/processed/poses,
+           data/raw/videos/An_Se_Young_Ratchanok_Intanon_YONEX_Thailand_Open_2021_QuarterFinals.json]
     outs: [data/processed/stroke_windows.npz,
            data/processed/rally_frames.npz,
            data/processed/splits.json]
