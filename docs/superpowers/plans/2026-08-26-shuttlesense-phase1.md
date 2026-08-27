@@ -1252,7 +1252,9 @@ def claim_next(conn):
 
 - [ ] **Step 3: Tests pass.** **Step 4: Commit** — `git commit -am "feat: backend config and sqlite job queue"`
 
----### Task 15: `pipeline.py` + `worker.py` — the analysis pipeline
+---
+
+### Task 15: `pipeline.py` + `worker.py` — the analysis pipeline
 
 **Files:**
 - Create: `backend/app/pipeline.py`, `backend/app/worker.py`
