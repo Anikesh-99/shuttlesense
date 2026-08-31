@@ -79,9 +79,9 @@ def test_claim_next_sees_other_connections_claims(tmp_path):
     implementation from a buggy one (the old, unguarded `with conn:`
     implementation also passes it, since the two claim_next() calls never
     actually overlap in time here). See
-    test_claim_next_write_lock_blocks_concurrent_claim below for the
+    test_claim_next_holds_write_lock_during_its_select below for the
     test that actually forces the overlap and proves the write lock is
-    held across the SELECT/UPDATE window.
+    held during claim_next's own SELECT.
     """
     path = tmp_path / "n.sqlite"
     setup_conn = db.connect(path)
@@ -99,52 +99,36 @@ def test_claim_next_sees_other_connections_claims(tmp_path):
     c2.close()
 
 
-def test_claim_next_write_lock_blocks_concurrent_claim(tmp_path):
-    """Proves BEGIN IMMEDIATE actually holds sqlite's write lock across the
-    SELECT/UPDATE window, forcing genuine overlap between two connections
-    (not just two non-overlapping sequential calls).
+def test_claim_next_holds_write_lock_during_its_select(tmp_path):
+    """Proves the write lock is held DURING a real db.claim_next(c1) call,
+    not just in a hand-written stand-in for its statements.
 
-    c1 manually replicates claim_next's internals (BEGIN IMMEDIATE, SELECT,
-    UPDATE) but deliberately does not COMMIT yet, holding the write lock
-    open. With c2's busy timeout set to 0 (fail immediately instead of
-    waiting), c2's own BEGIN IMMEDIATE must raise sqlite3.OperationalError
-    while c1's transaction is still open -- this is the assertion an old,
-    unguarded implementation (relying on `with conn:`'s legacy, lazy
-    implicit-transaction behavior) would fail, since it never holds a lock
-    across the SELECT. Once c1 commits, c2 can attempt claim_next() again
-    and correctly finds nothing left to claim.
+    c1's sqlite trace callback fires for every SQL statement c1 actually
+    executes inside claim_next(). When it sees claim_next's own "queued"
+    SELECT fire, it has c2 (busy_timeout=0, so it fails fast instead of
+    waiting) probe for the write lock right then, mid-call. If claim_next
+    has already taken the write lock (BEGIN IMMEDIATE before the SELECT),
+    c2's probe raises sqlite3.OperationalError; if not, it succeeds. This
+    is a red/green test of the real function, not of hand-copied SQL --
+    see "Fix round 3" in the task report for the required red-check
+    (temporarily reverting claim_next to the old, unguarded `with conn:`
+    form and confirming this test fails against it).
     """
     path = tmp_path / "lock.sqlite"
-    setup_conn = db.connect(path)
-    jid = db.create_job(setup_conn, "a.mp4")
-    setup_conn.close()
-
+    s = db.connect(path); jid = db.create_job(s, "a.mp4"); s.close()
     c1 = db.connect(path)
-    c2 = db.connect(path)
-    c2.execute("PRAGMA busy_timeout=0")
-
-    c1.execute("BEGIN IMMEDIATE")
-    row = c1.execute(
-        "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at, rowid LIMIT 1"
-    ).fetchone()
-    assert row is not None and row["id"] == jid
-    c1.execute(
-        "UPDATE jobs SET status='processing' WHERE id=? AND status='queued'",
-        (row["id"],),
-    )
-    # c1's transaction is still open (no COMMIT yet) -- it holds the write
-    # lock. c2 must fail fast rather than silently proceeding.
-    with pytest.raises(sqlite3.OperationalError):
-        c2.execute("BEGIN IMMEDIATE")
-
-    c1.execute("COMMIT")
-
-    # Now that c1 released the lock, c2 can run claim_next() normally --
-    # and correctly finds the job already taken.
-    assert db.claim_next(c2) is None
-
-    c1.close()
-    c2.close()
+    c2 = db.connect(path); c2.execute("PRAGMA busy_timeout=0")
+    seen = {}
+    def probe(stmt):
+        if "status='queued'" in stmt and stmt.lstrip().upper().startswith("SELECT"):
+            try:
+                c2.execute("BEGIN IMMEDIATE"); c2.execute("ROLLBACK"); seen["locked"] = False
+            except sqlite3.OperationalError:
+                seen["locked"] = True
+    c1.set_trace_callback(probe)
+    assert db.claim_next(c1)["id"] == jid
+    c1.set_trace_callback(None)
+    assert seen.get("locked") is True
 
 
 def test_create_job_id_is_uuid4_hex(tmp_path):

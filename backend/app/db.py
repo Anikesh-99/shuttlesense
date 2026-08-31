@@ -53,8 +53,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 """
 
+_wal_fallback_warned = False  # module-level flag: warn about WAL fallback once per process
+
 
 def connect(path: str | PathLike) -> sqlite3.Connection:
+    global _wal_fallback_warned
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p))
@@ -65,11 +68,15 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     conn.isolation_level = None
     mode_row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
     mode = mode_row[0] if mode_row else None
-    if not mode or str(mode).lower() != "wal":
+    if (not mode or str(mode).lower() != "wal") and not _wal_fallback_warned:
         # Some environments (e.g. certain network filesystems) can't honor
         # WAL and sqlite silently falls back to another journal mode. That's
         # not fatal -- claim_next's correctness comes from BEGIN IMMEDIATE's
         # locking, not specifically from WAL -- but it's worth surfacing.
+        # Only warn once per process (every connect() call would otherwise
+        # be as noisy as the underlying condition is persistent, e.g. one
+        # warning per job claimed).
+        _wal_fallback_warned = True
         warnings.warn(
             f"sqlite journal_mode={mode!r} (WAL unavailable, falling back)",
             RuntimeWarning,
