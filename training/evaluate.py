@@ -43,7 +43,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import glob
+import io
 import json
 import os
 import sys
@@ -64,8 +66,11 @@ from training.models import RallyGRU, StrokeTCN
 from training.train_rally import chunk as rally_chunk
 from training.train_rally import load_split as load_rally_split
 from training.train_rally import run_epoch as rally_run_epoch
-from shuttlesense_core.schemas import ALL_CLASSES
+from shuttlesense_core.schemas import ALL_CLASSES, NONE_CLASS
 from shuttlesense_core.smoothing import probs_to_intervals
+
+NONE_ID = ALL_CLASSES.index(NONE_CLASS)
+STROKE_ONLY_IDS = [i for i in range(len(ALL_CLASSES)) if i != NONE_ID]
 
 VAL_THRESHOLDS = (0.3, 0.4, 0.5, 0.6, 0.7)
 
@@ -78,6 +83,28 @@ SELECTION_BIAS_CAVEAT = (
 # ---------------------------------------------------------------------------
 # Data loading (test split rebuilt directly from npz + splits; never val)
 # ---------------------------------------------------------------------------
+
+def compute_match_coverage(z_match_array: np.ndarray, splits: dict) -> dict:
+    """Per-split MATCH counts (not window/frame counts): how many match ids
+    `splits.json` NOMINALLY lists for each split vs how many of those ids actually
+    have rows in this data file (i.e. have video/pose coverage). The nominal
+    counts (e.g. 30/7/7, per `make_splits`' 70/15/15 match-level split over all 44
+    `labels.parquet` matches) and the with-data counts (e.g. 7/2/3, per the 12
+    matches Task 12a acquired video/poses for) can differ hugely -- anyone citing
+    a test-set metric needs to see how few matches it's actually computed over in
+    the SAME artifact, not just infer it from window/frame counts."""
+    all_present = set(np.unique(z_match_array).tolist())
+    out = {}
+    for name in ("train", "val", "test"):
+        listed = sorted(splits[name])
+        with_data = [m for m in listed if m in all_present]
+        missing = [m for m in listed if m not in all_present]
+        out[name] = {
+            "nominal": len(listed), "with_data": len(with_data),
+            "with_data_matches": with_data, "missing_matches": missing,
+        }
+    return out
+
 
 def load_stroke_split_with_match(data_path: str, splits_path: str) -> dict:
     """Like `train_stroke.load_split`, but also returns each split's `match` id
@@ -128,6 +155,15 @@ def macro_f1_per_class(y_true, y_pred) -> tuple[float, np.ndarray]:
     return float(macro), per_class
 
 
+def stroke_only_macro_f1(per_class: np.ndarray) -> float:
+    """Macro-F1 over the 7 real stroke classes only, excluding `none` -- the
+    headline macro-F1 (all 8 classes) is dominated less by `none` than one might
+    fear (it's one class out of 8 either way), but `none` is also the single
+    largest class by row count (see the dataset-sizes table), so both numbers are
+    reported side by side rather than only the all-8-class figure."""
+    return float(np.mean(per_class[STROKE_ONLY_IDS]))
+
+
 def eval_stroke(stroke_data: dict, ckpt: dict, poses_dir: str) -> dict:
     model = load_stroke_model(ckpt)
     Xtr, ytr, _ = stroke_data["train"]
@@ -147,9 +183,20 @@ def eval_stroke(stroke_data: dict, ckpt: dict, poses_dir: str) -> dict:
     logreg = LogisticRegression(max_iter=1000).fit(Xtr_flat, ytr)
     logreg_macro, logreg_per_class = macro_f1_per_class(yte, logreg.predict(Xte_flat))
 
-    # Per-fps-family breakout (REQUIRED, task-12a disclosure (a)).
+    # Per-fps-family breakout (REQUIRED, task-12a disclosure (a)). Any test match id
+    # with no pose npz `meta` (hence no known orig_fps) is a real data-coverage gap,
+    # not something to silently fold into a bucket -- `fps_map.get(m, nan)` used to
+    # do exactly that (`nan < 27.5` is False, so unknowns fell open into the 30fps
+    # bucket). Fail loudly instead.
     fps_map = build_match_fps_map(poses_dir)
-    families = np.array([fps_family(fps_map.get(m, float("nan"))) for m in mte])
+    unknown_fps_matches = sorted(set(mte.tolist()) - set(fps_map.keys()))
+    if unknown_fps_matches:
+        raise ValueError(
+            f"eval_stroke: no pose npz `meta` found under {poses_dir!r} for test "
+            f"match id(s) {unknown_fps_matches} -- cannot determine fps family for "
+            "these rows; refusing to silently default them into a bucket"
+        )
+    families = np.array([fps_family(fps_map[m]) for m in mte])
     by_family = {}
     for fam in ("25fps", "30fps"):
         sel = families == fam
@@ -161,6 +208,7 @@ def eval_stroke(stroke_data: dict, ckpt: dict, poses_dir: str) -> dict:
 
     return {
         "tcn_macro_f1": tcn_macro, "tcn_per_class": tcn_per_class, "confusion": confusion,
+        "tcn_stroke_only_macro_f1": stroke_only_macro_f1(tcn_per_class),
         "dummy_macro_f1": dummy_macro, "dummy_per_class": dummy_per_class,
         "logreg_macro_f1": logreg_macro, "logreg_per_class": logreg_per_class,
         "by_family": by_family, "n_test": len(yte),
@@ -275,8 +323,24 @@ def confusion_table(confusion: np.ndarray) -> str:
     return "\n".join(lines)
 
 
+def match_coverage_table(match_counts: dict) -> str:
+    lines = [
+        "| split | matches in splits.json (nominal) | matches WITH video/pose data | matches |",
+        "|---|---|---|---|",
+    ]
+    for name in ("train", "val", "test"):
+        c = match_counts[name]
+        lines.append(
+            f"| {name} | {c['nominal']} | {c['with_data']} | "
+            + ", ".join(c["with_data_matches"]) + " |"
+        )
+    return "\n".join(lines)
+
+
 def render_report(args, stroke_data, stroke_res, rally_res, gate_pass, wandb_runs, wall_times,
-                   stroke_val_f1: float, rally_val_f1: float) -> str:
+                   stroke_val_f1: float, rally_val_f1: float,
+                   stroke_epochs: int | str, rally_epochs: int | str,
+                   match_counts: dict, absent_match_warnings: list[str]) -> str:
     gate_line = (
         f"**PASS** — TCN test macro-F1 {stroke_res['tcn_macro_f1']:.3f} > "
         f"LogisticRegression baseline {stroke_res['logreg_macro_f1']:.3f}"
@@ -300,15 +364,31 @@ def render_report(args, stroke_data, stroke_res, rally_res, gate_pass, wandb_run
     lines.append("")
     lines.append("## Training runs")
     lines.append("")
-    lines.append(f"- W&B mode: offline (no `WANDB_API_KEY` in this environment)")
+    # W&B mode is derived from THIS process's own environment at render time --
+    # never asserted as a fact about the (separate, already-finished) training
+    # runs this script did not itself invoke or time.
+    wandb_mode = os.environ.get("WANDB_MODE") or (
+        "online (WANDB_API_KEY set)" if os.environ.get("WANDB_API_KEY") else
+        "offline (no WANDB_API_KEY in this environment)"
+    )
+    lines.append(f"- W&B mode (this evaluate.py process's environment): {wandb_mode}")
     lines.append(f"- stroke: best-val-macro-F1 checkpoint recorded "
-                  f"`val_macro_f1`={stroke_val_f1:.3f} during training "
-                  f"(`training/train_stroke.py --config training/configs/stroke_tcn.yaml "
-                  "--wandb`, CPU, 40 epochs, ~44s measured wall time this run)")
+                  f"`val_macro_f1`={stroke_val_f1:.3f}, trained for {stroke_epochs} "
+                  f"configured epochs (`training/train_stroke.py --config "
+                  "training/configs/stroke_tcn.yaml --wandb`; epoch count read from "
+                  "the checkpoint's own `config` field -- the checkpoint does not "
+                  "record which specific epoch was best, only the total configured "
+                  "epoch count and the best val metric it saw)")
     lines.append(f"- rally: best-val-frame-F1 checkpoint recorded "
-                  f"`val_frame_f1`={rally_val_f1:.3f} during training "
-                  f"(`training/train_rally.py --config training/configs/rally_gru.yaml "
-                  "--wandb`, CPU, 30 epochs, ~12s measured wall time this run)")
+                  f"`val_frame_f1`={rally_val_f1:.3f}, trained for {rally_epochs} "
+                  f"configured epochs (`training/train_rally.py --config "
+                  "training/configs/rally_gru.yaml --wandb`; epoch count read from "
+                  "the checkpoint's own `config` field -- same caveat as above)")
+    lines.append(
+        "- Training wall-clock time was NOT measured by this script (it only loads "
+        "already-trained checkpoints) -- see the task report for wall times observed "
+        "at training time, if recorded there."
+    )
     for name, run_dir in wandb_runs.items():
         lines.append(f"- {name} run dir: `{run_dir}`")
     for name, dt in wall_times.items():
@@ -316,6 +396,35 @@ def render_report(args, stroke_data, stroke_res, rally_res, gate_pass, wandb_run
     lines.append("")
 
     lines.append("## Dataset sizes per split")
+    lines.append("")
+    lines.append(
+        "**Match coverage (read this before citing any test-split number below)**: "
+        "`splits.json` is a match-level 70/15/15 split over all 44 "
+        "`labels.parquet` matches, computed independently of which matches have "
+        "video/pose data -- only 12 of the 44 matches (Task 12a) actually have "
+        "video/pose coverage, so the vast majority of nominally-listed matches per "
+        "split contribute zero rows to the tensors below."
+    )
+    lines.append("")
+    lines.append(match_coverage_table(match_counts))
+    lines.append("")
+    n_missing_total = sum(len(match_counts[n]["missing_matches"]) for n in ("train", "val", "test"))
+    lines.append(
+        f"{n_missing_total} match id(s) listed in `splits.json` have zero rows in "
+        f"the stroke/rally data files (no video/pose coverage) and were silently "
+        "excluded from every table above and below -- the exact warning "
+        "`resolve_splits()` emits to stderr for each affected split is echoed "
+        "verbatim here rather than only appearing in a log a reader of this report "
+        "would never see:"
+    )
+    lines.append("")
+    lines.append("<details><summary>absent-match warnings (click to expand)</summary>")
+    lines.append("")
+    lines.append("```")
+    for w in absent_match_warnings:
+        lines.append(w)
+    lines.append("```")
+    lines.append("</details>")
     lines.append("")
     lines.append(class_counts_table(stroke_data))
     lines.append("")
@@ -342,6 +451,14 @@ def render_report(args, stroke_data, stroke_res, rally_res, gate_pass, wandb_run
     lines.append(f"Macro-F1: StrokeTCN = {stroke_res['tcn_macro_f1']:.3f}, "
                   f"DummyClassifier = {stroke_res['dummy_macro_f1']:.3f}, "
                   f"LogisticRegression = {stroke_res['logreg_macro_f1']:.3f}")
+    lines.append(
+        f"Note: StrokeTCN's {stroke_res['tcn_macro_f1']:.3f} macro-F1 is averaged "
+        f"over all 8 classes, including `none` (the single largest class by row "
+        f"count -- see the dataset-sizes table). Restricted to the 7 real stroke "
+        f"classes only (excluding `none`), StrokeTCN's macro-F1 is "
+        f"**{stroke_res['tcn_stroke_only_macro_f1']:.3f}**. Both numbers are stated "
+        "here so neither is read in isolation."
+    )
     lines.append("")
     lines.append("### Confusion matrix (StrokeTCN, rows=true, cols=pred)")
     lines.append("")
@@ -391,20 +508,20 @@ def render_report(args, stroke_data, stroke_res, rally_res, gate_pass, wandb_run
         "a bug in the sweep)."
     )
     lines.append("")
-    is_defensible = rally_res["best_val_threshold"] == 0.5 or (
-        abs(rally_res["val_sweep"][0.5] - rally_res["val_sweep"][rally_res["best_val_threshold"]]) < 0.01
-    )
+    val_n_matches = match_counts["val"]["with_data"]
+    margin = rally_res["val_sweep"][rally_res["best_val_threshold"]] - rally_res["val_sweep"][0.5]
     lines.append(
         f"Best VAL threshold = **{rally_res['best_val_threshold']}** "
         f"(val F1={rally_res['val_sweep'][rally_res['best_val_threshold']]:.3f} vs "
-        f"0.5's val F1={rally_res['val_sweep'][0.5]:.3f}). "
-        + ("0.5 is defensible (within 0.01 of the best, or is itself the best)."
-           if is_defensible else
-           "0.5 is NOT the best threshold on val by a non-trivial margin -- "
-           f"threshold {rally_res['best_val_threshold']} was selected on VAL and used "
-           "for the test-set IoU computation below (threshold selection on val is "
-           "legitimate, on test is forbidden -- this threshold was never chosen or "
-           "tuned against test data).")
+        f"0.5's val F1={rally_res['val_sweep'][0.5]:.3f}, margin={margin:.3f}). "
+        f"This margin is small and val has data from only {val_n_matches} match(es) "
+        "-- read the sweep as noisy, not as strong evidence against 0.5; **0.5 "
+        f"would also be defensible**. Threshold {rally_res['best_val_threshold']} "
+        "was nonetheless the strict argmax on VAL and is what gets used for the "
+        "test-set IoU computation below, per the RULED contract (threshold "
+        "selection on val is legitimate, on test is forbidden -- this threshold "
+        "was never chosen or tuned against test data, regardless of how small its "
+        "margin over 0.5 is)."
     )
     lines.append("")
     lines.append(f"Mean temporal IoU on test (threshold={rally_res['best_val_threshold']}): "
@@ -462,8 +579,9 @@ def main():
     ap.add_argument("--rally-data", default="training/data/processed/rally_frames.npz")
     ap.add_argument("--splits", default="training/data/processed/splits.json")
     ap.add_argument("--poses", default="training/data/processed/poses")
-    ap.add_argument("--out", default="training/reports/2026-08-31-eval.md")
-    ap.add_argument("--date", default="2026-08-31")
+    default_date = time.strftime("%Y-%m-%d")
+    ap.add_argument("--out", default=f"training/reports/{default_date}-eval.md")
+    ap.add_argument("--date", default=default_date)
     ap.add_argument("--wandb-dir", default="wandb")
     a = ap.parse_args()
 
@@ -472,6 +590,18 @@ def main():
     stroke_data = load_stroke_split_with_match(a.stroke_data, a.splits)
     stroke_res = eval_stroke(stroke_data, stroke_ckpt, a.poses)
     t1 = time.time()
+
+    # Per-split MATCH coverage (nominal splits.json listing vs matches that actually
+    # have video/pose data) + the exact resolve_splits() absent-match warnings,
+    # captured here so they can be echoed VERBATIM into the report itself, not left
+    # to only ever appear on stderr where a report reader would never see them.
+    z_stroke_matches = np.load(a.stroke_data)["match"]
+    stderr_buf = io.StringIO()
+    with contextlib.redirect_stderr(stderr_buf):
+        raw_splits = resolve_splits(set(np.unique(z_stroke_matches).tolist()), a.splits, a.stroke_data)
+    absent_match_warnings = [ln for ln in stderr_buf.getvalue().splitlines() if ln.strip()]
+    print(stderr_buf.getvalue(), end="", file=sys.stderr)  # still surface it on stderr as before
+    match_counts = compute_match_coverage(z_stroke_matches, raw_splits)
     rally_ckpt = torch.load(a.rally_ckpt, weights_only=False)
     rally_res = eval_rally(a.rally_data, a.splits, rally_ckpt)
     t2 = time.time()
@@ -501,6 +631,9 @@ def main():
         a, stroke_data, stroke_res, rally_res, gate_pass, wandb_runs, wall_times,
         stroke_val_f1=float(stroke_ckpt.get("val_macro_f1", float("nan"))),
         rally_val_f1=float(rally_ckpt.get("val_frame_f1", float("nan"))),
+        stroke_epochs=stroke_ckpt.get("config", {}).get("epochs", "unknown"),
+        rally_epochs=rally_ckpt.get("config", {}).get("epochs", "unknown"),
+        match_counts=match_counts, absent_match_warnings=absent_match_warnings,
     )
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     with open(a.out, "w") as f:

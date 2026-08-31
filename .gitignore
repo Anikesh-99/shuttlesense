@@ -11,3 +11,8 @@ training/data/**
 wandb/
 .dvc/cache
 *.egg-info/
+# training/checkpoints/: reproducible (seeded re-run of train_stroke.py/train_rally.py
+# per their configs regenerates them byte-for-byte given the same data); registry of
+# record is Task 13's W&B artifacts + backend/models/manifest.json, not this directory
+# -- DVC-tracking checkpoints here would duplicate that registry role.
+training/checkpoints/
