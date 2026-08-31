@@ -5,5 +5,9 @@ python-multipart>=0.0.9
 onnxruntime>=1.17
 numpy
 opencv-python-headless
-# rtmlib installed separately with --no-deps (GUI opencv conflict) — see Dockerfile / Task 15
-httpx>=0.27
+
+# rtmlib installed separately with --no-deps (GUI opencv conflict) — see
+# Dockerfile / Task 15. Its real transitive needs (numpy, opencv-python-headless,
+# onnxruntime) are already listed above for other reasons.
+
+httpx>=0.27  # test-only (FastAPI TestClient)

@@ -5,6 +5,11 @@ Values are sourced from environment variables prefixed ``SHUTTLESENSE_``
 defaults below. Use :func:`get_settings` to obtain a process-wide cached
 instance rather than constructing :class:`Settings` directly, so the whole
 app agrees on one configuration snapshot.
+
+Tests that monkeypatch ``SHUTTLESENSE_*`` env vars must call
+``get_settings.cache_clear()`` afterwards (or before re-reading), since
+``lru_cache`` otherwise keeps serving the first-ever-built ``Settings``
+instance for the lifetime of the process/test session.
 """
 from __future__ import annotations
 
