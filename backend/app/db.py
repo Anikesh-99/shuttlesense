@@ -4,7 +4,8 @@ Schema (single table, ``jobs``):
     id TEXT PRIMARY KEY       -- uuid4 hex
     filename TEXT             -- original uploaded filename
     status TEXT               -- "queued" -> "processing" -> "done" | "failed"
-    error TEXT                -- set only when status == "failed"
+    error TEXT                -- non-NULL only when status == "failed"; cleared
+                                  (set back to NULL) by finish(..., "done")
     created_at REAL           -- time.time() at creation, used for FIFO ordering
 
 Concurrency: ``connect()`` puts the connection in autocommit mode
@@ -14,12 +15,18 @@ explicit ``BEGIN`` / ``COMMIT`` / ``ROLLBACK`` statements we issue ourselves
 transaction lazily on the first DML statement, which is too late to prevent
 two connections from both SELECTing the same "queued" row before either has
 written its UPDATE. ``claim_next`` therefore opens the transaction with
-``BEGIN IMMEDIATE`` *before* the SELECT (acquiring the write lock up front,
-so a second connection blocks at its own ``BEGIN IMMEDIATE`` until the first
-commits) and additionally guards the UPDATE with
-``WHERE id=? AND status='queued'`` plus a ``rowcount`` check, so even a
-misconfigured/older-sqlite connection that lost the row-lock race is caught
-rather than silently double-claiming.
+``BEGIN IMMEDIATE`` *before* the SELECT (acquiring the write lock up front).
+A second connection's own ``BEGIN IMMEDIATE`` does **not** block
+indefinitely: it waits up to sqlite3's busy timeout (the connection's
+``timeout=`` constructor argument / ``PRAGMA busy_timeout``, default 5s)
+for the first connection to commit, and if that elapses first, raises
+``sqlite3.OperationalError: database is locked`` instead of proceeding.
+Callers polling ``claim_next`` (the Task 15 worker loop) must therefore
+catch ``sqlite3.OperationalError`` and treat it as a transient condition
+(retry on the next poll), not a fatal error. ``claim_next`` additionally
+guards the UPDATE with ``WHERE id=? AND status='queued'`` plus a
+``rowcount`` check, so even a misconfigured/older-sqlite connection that
+lost the row-lock race is caught rather than silently double-claiming.
 
 Threading: connections are not shared across threads (``sqlite3.connect``'s
 default ``check_same_thread=True`` is left as-is, deliberately). Each thread
@@ -32,6 +39,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
+import warnings
 from os import PathLike
 from pathlib import Path
 
@@ -55,7 +63,18 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     # module docstring). Do not rely on sqlite3's implicit-transaction
     # legacy behavior here.
     conn.isolation_level = None
-    conn.execute("PRAGMA journal_mode=WAL")
+    mode_row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    mode = mode_row[0] if mode_row else None
+    if not mode or str(mode).lower() != "wal":
+        # Some environments (e.g. certain network filesystems) can't honor
+        # WAL and sqlite silently falls back to another journal mode. That's
+        # not fatal -- claim_next's correctness comes from BEGIN IMMEDIATE's
+        # locking, not specifically from WAL -- but it's worth surfacing.
+        warnings.warn(
+            f"sqlite journal_mode={mode!r} (WAL unavailable, falling back)",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     conn.execute(_SCHEMA)
     return conn
 
@@ -93,7 +112,12 @@ def claim_next(conn: sqlite3.Connection) -> sqlite3.Row | None:
             return None
         conn.execute("COMMIT")
     except BaseException:
-        conn.execute("ROLLBACK")
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            # Don't let a failed ROLLBACK (e.g. connection already broken,
+            # no transaction actually open) mask the original error.
+            pass
         raise
     # Return the post-update row so callers never observe status='queued'
     # on a job that is actually already 'processing'.
@@ -108,13 +132,13 @@ def finish(
 ) -> None:
     if status not in ("done", "failed"):
         raise ValueError(f"invalid status: {status!r}; must be 'done' or 'failed'")
-    if status == "failed":
-        cur = conn.execute(
-            "UPDATE jobs SET status=?, error=? WHERE id=?", (status, error, job_id)
-        )
-    else:
-        # Never clobber a previously recorded error with NULL on success.
-        cur = conn.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+    # error is non-NULL only when status == "failed" (schema contract);
+    # finishing "done" always clears any previously recorded error, e.g.
+    # from an earlier failed attempt at the same job id.
+    err = error if status == "failed" else None
+    cur = conn.execute(
+        "UPDATE jobs SET status=?, error=? WHERE id=?", (status, err, job_id)
+    )
     if cur.rowcount == 0:
         raise ValueError(f"unknown job id: {job_id!r}")
 

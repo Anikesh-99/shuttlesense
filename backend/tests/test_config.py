@@ -4,10 +4,16 @@ from backend.app.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache():
+def _clean_settings_env(monkeypatch):
     # get_settings() is lru_cache'd; make sure each test starts and ends
     # with a clean cache so env-var monkeypatches in one test can't leak
-    # a stale Settings instance into another.
+    # a stale Settings instance into another. Also strip any ambient
+    # SHUTTLESENSE_* env vars from the real environment (e.g. set by a
+    # developer's shell or CI) so tests -- especially
+    # test_defaults_match_binding_list -- see the field defaults rather
+    # than whatever happens to be set outside the test.
+    for name in Settings.model_fields:
+        monkeypatch.delenv(f"SHUTTLESENSE_{name.upper()}", raising=False)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
