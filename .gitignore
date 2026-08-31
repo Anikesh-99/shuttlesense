@@ -2,7 +2,8 @@
 .venv/
 __pycache__/
 *.pyc
-backend/models/
+backend/models/*
+!backend/models/manifest.json
 training/data/**
 !training/data/**/
 !training/data/**/*.dvc
