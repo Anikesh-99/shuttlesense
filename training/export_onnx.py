@@ -6,6 +6,12 @@ stored `config`, exports it to ONNX, and writes `backend/models/manifest.json` -
 the committed registry of record that Task 15's serving code pins against (never
 hardcode thresholds/paths there; read them from this manifest).
 
+Manifest fields note: `rally.val_frame_f1` is the checkpoint's validation
+frame-F1 as measured during training at decision threshold 0.5 (see
+`val_frame_f1_threshold`), which is DIFFERENT from `rally.threshold` (0.6),
+the operating threshold Task 15 actually serves at -- the two numbers are not
+comparable and both are recorded explicitly so a reader cannot conflate them.
+
 Checkpoint shapes (CONTROLLER RULING, Task 13 carry-over 5):
     stroke: {"state_dict", "config", "val_macro_f1", "classes", "confusion"}
     rally:  {"state_dict", "config", "val_frame_f1"}
@@ -49,22 +55,52 @@ from pathlib import Path
 
 import torch
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 # Repo root on sys.path so `from training.models import ...` resolves regardless
 # of the caller's cwd (mirrors train_stroke.py / train_rally.py convention).
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(REPO_ROOT))
 
 from training.models import RallyGRU, StrokeTCN  # noqa: E402
 
 RALLY_THRESHOLD = 0.6  # operating threshold (RULED: never hardcode 0.5 downstream;
                         # Task 15 reads this from manifest.json's "rally"."threshold").
+# NOTE on the two rally numbers in the manifest: `val_frame_f1` (from the
+# checkpoint) was measured at decision threshold 0.5 (train_rally.py's
+# validation loop thresholds raw sigmoid probabilities at 0.5, the metric
+# default) -- it is NOT the F1 of the 0.6 operating point above. The two are
+# genuinely different operating points and must not be conflated; the
+# manifest records both explicitly (`val_frame_f1_threshold: 0.5` alongside
+# `val_frame_f1`) so a reader doesn't assume `val_frame_f1` was measured at
+# the 0.6 operating threshold Task 15 actually serves at.
+RALLY_VAL_F1_THRESHOLD = 0.5
 
 
 def git_sha() -> str:
+    """`git rev-parse HEAD` at *export time*, run with cwd pinned to the repo
+    root (so it is correct regardless of the caller's cwd, and unaffected by
+    stray nested `.git` dirs elsewhere).
+
+    Semantics: this is the commit of the checkpoints/training code that
+    produced the exported `.onnx` files and the metrics recorded alongside it
+    in the manifest -- NOT the commit that adds/updates the manifest.json
+    file itself. Since the manifest is committed *after* this function runs
+    (as part of the same Task 13 change), the manifest's own commit is
+    necessarily one commit ahead of the `git_sha` value it contains. This is
+    expected and intentional: `git_sha` documents model/data provenance, not
+    manifest-file provenance.
+    """
     try:
         return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(REPO_ROOT),
         ).stdout.strip()
-    except Exception:
+    except Exception as e:
+        print(f"WARNING: git_sha() failed ({e!r}); recording 'unknown' in the "
+              f"manifest -- provenance will be unclear.", file=sys.stderr)
         return "unknown"
 
 
@@ -104,7 +140,11 @@ def export_rally(ckpt_path: str, out_dir: Path) -> dict:
     model.eval()
 
     out_path = out_dir / "rally_gru.onnx"
-    x = torch.randn(1, 512, 4)
+    # B=2 (not 1) for the trace: the ONNX exporter warns that tracing a
+    # bidirectional GRU with batch_size=1 can bake batch-specific behavior
+    # into the graph for the "variable length with GRU" case; tracing with a
+    # non-degenerate batch avoids that failure mode (fix round 1, Task 13).
+    x = torch.randn(2, 512, 4)
     # dynamic on BOTH batch and time -- carry-over 2 (Task 15 runs (N,512,4) chunks).
     torch.onnx.export(
         model,
@@ -119,6 +159,7 @@ def export_rally(ckpt_path: str, out_dir: Path) -> dict:
     return {
         "file": out_path.name,
         "val_frame_f1": ck["val_frame_f1"],
+        "val_frame_f1_threshold": RALLY_VAL_F1_THRESHOLD,
         "git_sha": git_sha(),
         "threshold": RALLY_THRESHOLD,
     }
