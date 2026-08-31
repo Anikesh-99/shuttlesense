@@ -67,7 +67,19 @@ def run_one(
         err = (e.stderr or b"")
         out = out.decode() if isinstance(out, bytes) else out
         err = err.decode() if isinstance(err, bytes) else err
-        log = out + err + f"\n[bulk_extract] {mid}: TIMEOUT after {timeout_s}s (per-clip limit)"
+        note = ""
+        # A killed extract_poses.py subprocess may have already written a partial/
+        # truncated npz before the timeout fired -- leaving it on disk would let a
+        # later `--skip-existing` rerun mistake it for a real, complete artifact
+        # (verify_npz() would likely catch it too, but don't rely on that: delete the
+        # partial file outright so there is nothing to mistakenly resume from).
+        if os.path.exists(npz_path):
+            try:
+                os.remove(npz_path)
+                note = f"\n[bulk_extract] {mid}: removed partial npz {npz_path!r} left by the timed-out process"
+            except OSError as rm_err:
+                note = f"\n[bulk_extract] {mid}: WARNING failed to remove partial npz {npz_path!r}: {rm_err!r}"
+        log = out + err + f"\n[bulk_extract] {mid}: TIMEOUT after {timeout_s}s (per-clip limit)" + note
         return mid, False, dt, log
     dt = time.time() - t0
     log = proc.stdout + proc.stderr
@@ -109,8 +121,21 @@ def main():
         mid = os.path.basename(v).rsplit(".", 1)[0]
         npz = os.path.join(a.out_dir, f"{mid}.npz")
         if a.skip_existing and os.path.exists(npz):
-            print(f"[bulk_extract] {mid}: npz already exists, skipping", flush=True)
-            continue
+            # Fix Round 2 (Task 12b carry-over): existence alone was previously treated
+            # as proof of a resumable/complete artifact -- but a prior interrupted run
+            # (crash, OOM-kill, manual Ctrl-C) can leave a truncated/corrupt npz on
+            # disk, and blindly skipping it would silently ship a bad or missing match
+            # forever (an interrupted `--skip-existing` rerun would never re-attempt
+            # it). Run the same `verify_npz()` used for a freshly-produced npz; only
+            # skip if it actually passes, otherwise re-queue for a real re-extraction.
+            problem = verify_npz(npz)
+            if not problem:
+                print(f"[bulk_extract] {mid}: npz already exists and verifies OK, skipping", flush=True)
+                continue
+            print(
+                f"[bulk_extract] {mid}: npz exists but failed verification "
+                f"({problem}) -- re-queuing for extraction", flush=True,
+            )
         todo.append(v)
 
     print(f"[bulk_extract] {len(todo)} clip(s) to process, {a.workers} worker(s)", flush=True)

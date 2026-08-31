@@ -21,13 +21,24 @@ only primitives (a tensor state_dict, a plain dict `config` from
 callables -- so it loads under both `torch.load(..., weights_only=True)` and
 `weights_only=False`. The smoke test uses `weights_only=False` per the brief.
 
-Inference note (carry-forward for Task 15): `RallyGRU` is a bidirectional GRU
-whose hidden state resets at the start of every forward pass, i.e. at every
-chunk boundary during training. To match that at inference time, run the
-model over either (a) a match's full frame sequence in one forward pass, or
-(b) the same fixed-size (`cfg["chunk"]`, default 512) non-overlapping chunks
-used here -- not arbitrary-length windows -- or the learned boundary behavior
-will not transfer.
+Inference note (RULED CONTRACT, carry-forward for Task 15): `RallyGRU` is a
+bidirectional GRU whose hidden state resets at the start of every forward
+pass, i.e. at every chunk boundary during training, and the model was ONLY
+ever trained on fixed-size (`cfg["chunk"]`, default 512) chunks produced by
+`chunk()` above, whose PAD-ALWAYS-WITH-MASK policy means the final chunk of
+every match's sequence is zero-padded up to exactly `size` (never a
+shorter/ragged remainder). Inference MUST reproduce those exact runtime
+conditions: split a match's full frame sequence into the same non-overlapping
+`size`-frame chunks (via `chunk()` itself, ideally, so the padding logic
+cannot drift from training), including zero-padding the final partial chunk
+identically, run `RallyGRU` chunk-by-chunk, and DISCARD any output at a
+pad position (per the chunk's `mask`) rather than thresholding/emitting
+play-intervals from it. A single full-sequence forward pass over an entire
+match is NOT equivalent to training conditions and must NOT be used for
+inference: the bidirectional GRU only ever saw padded chunk tails during
+training (never a full, un-chunked, un-padded match-length sequence), so a
+full-sequence forward pass presents the recurrent layers with an input
+distribution/boundary structure they were never trained on.
 """
 from __future__ import annotations
 import argparse, os, sys

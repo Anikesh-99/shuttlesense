@@ -144,6 +144,33 @@ def test_stroke_samples_random_negatives_stay_guard_distance_from_every_hit():
         assert all(abs(decoded_f - h) > guard for h in hits), (decoded_f, hits)
 
 
+def test_random_negatives_never_come_from_a_zeroed_absent_slot():
+    # Pin the random-fill negative-sampling loop's presence gate (build_windows.py's
+    # module docstring, "Hitter selection" / Fix round 2 item 1): a random (frame, slot)
+    # draw that lands on a slot with ZEROED kpts AND scores (i.e. genuinely absent, not
+    # just below-threshold-but-nonzero) must NEVER be emitted as a negative -- that would
+    # hand the classifier a literal all-zeros input as a trivial "none" shortcut. Slot 1
+    # is entirely zeroed (kpts AND scores) for the whole clip; slot 0 is present
+    # everywhere, so every negative (all from the random-fill path here, since the only
+    # hit's non-hitter slot is slot 1, which never clears presence) must come from slot 0
+    # and therefore be non-all-zero.
+    rng = np.random.default_rng(0)
+    T = 600
+    kpts = _fixed_torso_kpts(T)
+    kpts[:, 1] = 0.0  # slot 1: fully zeroed kpts (overrides _fixed_torso_kpts's torso)
+    scores = np.zeros((T, 2, 17), dtype=np.float32)
+    scores[:, 0, :] = 1.0  # slot 0 present everywhere; slot 1 permanently zero/absent
+    labels = pd.DataFrame({
+        "hit_frame": [300], "player": [0], "stroke": ["smash"], "fps": [30.0],
+    })
+    X, y, n_skipped = build_stroke_samples(labels, kpts, scores, fps_scale=1.0, rng=rng)
+    assert n_skipped == 0
+    negatives = X[y == NONE_ID]
+    assert len(negatives) >= 1  # 1:1 budget with the single positive
+    for neg in negatives:
+        assert np.any(neg), "a random negative was emitted from a zeroed/absent slot"
+
+
 def test_build_stroke_samples_warns_when_negative_budget_cannot_be_filled():
     # Tiny T with a guard distance that swallows nearly the whole valid range -> the
     # random-fill loop should give up after its try budget and WARN rather than loop

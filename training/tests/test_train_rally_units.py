@@ -196,19 +196,34 @@ def test_run_epoch_excludes_padded_frames_from_metric_and_returned_arrays():
 
 
 def test_run_epoch_masked_loss_ignores_padding_predictions():
-    # A model that's wildly wrong only on padded frames should not incur any
-    # training loss for those frames -- the masked mean must exclude them.
+    # A model's loss must be IDENTICAL for two y tensors that differ only at
+    # padded (mask==0) positions -- the masked mean must genuinely exclude
+    # those positions' contribution, not just avoid crashing on them (the
+    # previous version of this test only asserted `isinstance(loss, float)`,
+    # which is vacuous: it would pass even if masking were a complete no-op).
+    # lr=0.0 (no real optimizer step) so the two calls see the same model
+    # weights and are directly comparable.
     torch.manual_seed(0)
     model = RallyGRU(hidden=4)
     model.train()
     n_chunks, size = 4, 16
     X = torch.randn(n_chunks, size, 4)
-    y = torch.zeros(n_chunks, size)
     mask = torch.ones(n_chunks, size)
     mask[:, size // 2:] = 0.0
     loss_fn = nn.BCEWithLogitsLoss(reduction="none")
-    opt = torch.optim.SGD(model.parameters(), lr=0.0)  # no actual update, just exercise the path
-    loss, _, _ = run_epoch(model, X, y, mask, bs=2, opt=opt, loss_fn=loss_fn)
-    # sanity: loss is finite and a plain float (masked-mean successfully computed)
-    assert isinstance(loss, float)
-    assert loss == loss  # not NaN
+
+    y_a = torch.zeros(n_chunks, size)
+    y_b = y_a.clone()
+    y_b[:, size // 2:] = 1.0  # differs from y_a ONLY at padded (mask==0) positions
+
+    torch.manual_seed(1)
+    opt_a = torch.optim.SGD(model.parameters(), lr=0.0)
+    loss_a, _, _ = run_epoch(model, X, y_a, mask, bs=2, opt=opt_a, loss_fn=loss_fn)
+
+    torch.manual_seed(1)
+    opt_b = torch.optim.SGD(model.parameters(), lr=0.0)
+    loss_b, _, _ = run_epoch(model, X, y_b, mask, bs=2, opt=opt_b, loss_fn=loss_fn)
+
+    assert isinstance(loss_a, float) and isinstance(loss_b, float)
+    assert loss_a == loss_a and loss_b == loss_b  # not NaN
+    assert loss_a == pytest.approx(loss_b)

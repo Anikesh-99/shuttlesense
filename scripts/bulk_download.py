@@ -41,6 +41,20 @@ import sys
 #      differently-bounded source). The sidecar is NOT written on a mismatch; the run
 #      is reported as a failure for that match instead of silently shipping bad
 #      provenance metadata.
+#
+# Fix Round 2 (Task 12b carry-over): (1) above previously unlinked `out_path` BEFORE
+# invoking yt-dlp -- a real destructive-pre-delete gap: if yt-dlp then failed/crashed
+# before writing anything (network drop, extractor error, etc.), the match was left with
+# NO video at all where a perfectly good one existed moments before, and worse, a crash
+# between the unlink and a successful-looking-but-wrong write could leave a half-written
+# `out_path` paired with an about-to-be-written sidecar. Replaced with TEMP-PATH STAGING:
+# yt-dlp writes to `out_path + ".part.mp4"` (never touching `out_path` itself), the
+# ffprobe duration assertion runs against that temp path, and only once it passes is the
+# temp path atomically `os.replace()`d onto `out_path` -- immediately followed by the
+# sidecar write. `out_path` is therefore either the OLD (still valid) file or the NEW
+# (verified) file at every point in time, never missing/half-written; a failed attempt
+# leaves the old video+sidecar pair untouched and simply removes its own leftover temp
+# file.
 DURATION_TOL_S = 3.0  # absolute tolerance; --download-sections snaps to keyframes, so
 # a couple seconds of slack around the requested window is expected and not a bug.
 
@@ -84,38 +98,49 @@ def download_one(
     end_s = start_s + dur_s
     section = f"*{fmt_ts(start_s)}-{fmt_ts(end_s)}"
     out_path = os.path.join(videos_dir, f"{match_id}.mp4")
+    # Fix Round 2: stage the download at a TEMP path, never at `out_path` itself, so a
+    # failed/crashed attempt can never leave `out_path` missing or half-written -- see
+    # the module-level "Fix Round 2" comment above for the full rationale.
+    tmp_path = out_path + ".part.mp4"
     cmd = [
         yt_dlp, "-f", "bv*[height<=720]",
         "--download-sections", section,
         "--extractor-args", "youtube:player_client=default",
-        "-o", out_path,
+        "-o", tmp_path,
         entry["url"],
     ]
     last_err = ""
     for attempt in (1, 2):  # ONE retry on transient failure, per controller ruling
-        if force_overwrite and os.path.exists(out_path):
-            # Unlink first -- yt-dlp silently SKIPS (exit 0, no download) when the
-            # destination already exists, which is exactly the bug this fix closes.
-            print(f"[bulk_download] {match_id}: force-overwrite, removing stale {out_path}", file=sys.stderr)
-            os.remove(out_path)
+        if force_overwrite and os.path.exists(tmp_path):
+            # Unlink the TEMP path (not out_path) first -- yt-dlp silently SKIPS (exit
+            # 0, no download) when its own destination already exists, which is exactly
+            # the bug this guard closes; a leftover temp path from a prior failed
+            # attempt must not fool the next attempt into skipping either.
+            print(f"[bulk_download] {match_id}: force-overwrite, removing stale {tmp_path}", file=sys.stderr)
+            os.remove(tmp_path)
         print(f"[bulk_download] {match_id}: attempt {attempt}: {' '.join(cmd)}", file=sys.stderr)
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode == 0 and os.path.exists(out_path):
+        if proc.returncode == 0 and os.path.exists(tmp_path):
             try:
-                actual_dur = ffprobe_duration_s(out_path, ffprobe)
+                actual_dur = ffprobe_duration_s(tmp_path, ffprobe)
             except RuntimeError as e:
                 last_err = f"{match_id}: post-download ffprobe check failed: {e}"
                 continue
             if abs(actual_dur - dur_s) > duration_tol_s:
                 last_err = (
                     f"{match_id}: duration mismatch -- manifest expects {dur_s}s "
-                    f"({section}), ffprobe reports {actual_dur:.1f}s on {out_path!r} "
-                    f"(tolerance {duration_tol_s}s). NOT writing sidecar. This is the "
-                    "yt-dlp silent-skip failure mode (stale pre-existing file kept on "
-                    "a no-op download, exit 0) -- pass force_overwrite=True (default) "
-                    "or manually delete the stale file and retry."
+                    f"({section}), ffprobe reports {actual_dur:.1f}s on {tmp_path!r} "
+                    f"(tolerance {duration_tol_s}s). NOT writing sidecar, NOT touching "
+                    f"the existing {out_path!r} (if any). This is the yt-dlp "
+                    "silent-skip failure mode (stale pre-existing file kept on a no-op "
+                    "download, exit 0) -- pass force_overwrite=True (default) or "
+                    "manually delete the stale temp file and retry."
                 )
                 continue
+            # Verified good -- atomically promote the temp file onto out_path. Any
+            # pre-existing out_path (old video) is replaced only now, at the last
+            # possible moment, after the new file has already passed verification.
+            os.replace(tmp_path, out_path)
             sidecar = {
                 "url": entry["url"],
                 "download_section": section,
@@ -137,6 +162,11 @@ def download_one(
                 f.write("\n")
             return True, ""
         last_err = proc.stderr[-2000:]
+    # Both attempts failed (or verification failed both times) -- clean up any leftover
+    # temp file so it can't be mistaken for a real artifact or confuse a future rerun's
+    # force-overwrite unlink logic; out_path (old video, if any) is left untouched.
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
     return False, last_err
 
 
