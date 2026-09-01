@@ -1,0 +1,157 @@
+/* Signature element: the video sits inside a viewfinder frame (corner
+   brackets, like a broadcast camera crop guide / court boundary lines)
+   rather than a plain rounded card -- ties the "instrumented footage"
+   concept to the visual chrome instead of decorating it. */
+
+.ss-player {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ss-player__stage {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 2px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.ss-player__video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ss-player__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.ss-player__bracket {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--gold);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.ss-player__bracket--tl {
+  top: 10px;
+  left: 10px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.ss-player__bracket--tr {
+  top: 10px;
+  right: 10px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.ss-player__bracket--bl {
+  bottom: 10px;
+  left: 10px;
+  border-right: none;
+  border-top: none;
+}
+
+.ss-player__bracket--br {
+  bottom: 10px;
+  right: 10px;
+  border-left: none;
+  border-top: none;
+}
+
+.ss-player__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ss-player__playbtn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  color: var(--text-0);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.ss-player__playbtn:hover {
+  border-color: var(--gold);
+  background: var(--bg-2);
+}
+
+.ss-player__clock {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  color: var(--text-1);
+  min-width: 88px;
+}
+
+/* The seek bar is the piece the dataviz skill's rules apply to most
+   directly: rally segments are the *data*, not decoration, so they get
+   the one accent color (gold) reserved for tracking chrome -- never a
+   rainbow of per-rally hues, which would imply a categorical dimension
+   that doesn't exist (a rally has a winner, not a "type"). The playhead
+   is a bright hairline, distinct in both hue and shape from the rally
+   blocks, so "where am I" never gets confused with "what happened here". */
+.ss-player__seekbar {
+  position: relative;
+  flex: 1 1 auto;
+  height: 26px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.ss-player__rally {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 2px;
+  background: var(--gold-dim);
+  border-left: 2px solid var(--gold);
+  border-radius: 1px;
+}
+
+.ss-player__playhead {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--text-0);
+  box-shadow: 0 0 6px 1px rgba(238, 241, 246, 0.6);
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.ss-player__toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ss-player__toggle input {
+  accent-color: var(--gold);
+}

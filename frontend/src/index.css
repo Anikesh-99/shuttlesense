@@ -1,0 +1,94 @@
+/* ShuttleSense design tokens.
+   Direction: dark "broadcast viewfinder" theme. The video is the hero;
+   everything else is instrumentation around it.
+   Player colors are a fixed contract (approved mockups / task-17 brief):
+     player 0 = green #63d5a0, player 1 = blue #6fa8ff.
+   Rally/data accent (shuttle-cork gold) is the one deliberate risk: a warm
+   note against the cool green/blue pair, used only for tracking chrome
+   (rally ticks, active-stroke chip, focus rings) -- never decoration. */
+
+:root {
+  --bg-0: #0a0d12;      /* page background */
+  --bg-1: #12161e;      /* panels / cards */
+  --bg-2: #1b212c;      /* elevated / hover */
+  --line: #262d3a;      /* hairline borders */
+
+  --text-0: #eef1f6;    /* primary text */
+  --text-1: #9aa4b6;    /* secondary / muted text */
+  --text-2: #626d80;    /* tertiary / disabled */
+
+  --player-0: #63d5a0;  /* green */
+  --player-0-dim: #63d5a033;
+  --player-1: #6fa8ff;  /* blue */
+  --player-1-dim: #6fa8ff33;
+
+  --gold: #f5b942;      /* rally / tracking accent */
+  --gold-dim: #f5b94233;
+  --danger: #ff6b6b;
+
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,118 @@
+.ss-report {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.ss-report--state {
+  padding-top: 96px;
+  text-align: left;
+}
+
+.ss-report__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 6px;
+}
+
+.ss-report__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+
+.ss-report__title {
+  font-size: 26px;
+}
+
+.ss-report__title .mono {
+  color: var(--text-1);
+  font-size: 18px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.ss-report__stats {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+}
+
+.ss-report__stats dt {
+  font-size: 11px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ss-report__stats dd {
+  margin: 2px 0 0;
+  font-size: 18px;
+  color: var(--text-0);
+}
+
+.ss-report__error {
+  color: var(--danger);
+}
+
+.ss-report__rallies h2 {
+  font-size: 15px;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+}
+
+.ss-report__empty {
+  color: var(--text-1);
+}
+
+.ss-report__rallylist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.ss-report__rallyrow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.ss-report__rallyidx {
+  color: var(--text-2);
+  width: 24px;
+}
+
+.ss-report__rallyspan {
+  color: var(--text-1);
+  width: 120px;
+}
+
+.ss-report__winner {
+  color: var(--text-2);
+}
+
+.ss-report__winner--p0 {
+  color: var(--player-0);
+}
+
+.ss-report__winner--p1 {
+  color: var(--player-1);
+}
