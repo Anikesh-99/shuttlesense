@@ -102,11 +102,35 @@ def healthz() -> dict:
     return {"ok": True}
 
 
+def _sanitize_upload_filename(raw_name: str) -> str:
+    """Reduce a client-supplied `Content-Disposition` filename to a bare,
+    single-component filename safe to join under a staging directory --
+    or raise 400.
+
+    `Path(...).name` alone strips any directory components ("../x.mp4" ->
+    "x.mp4", "/abs/x.mp4" -> "x.mp4"), but silently ACCEPTING that
+    stripped-down name would still be surprising/wrong behavior for a
+    security-relevant validator (the client asked to write "../x.mp4" and
+    we'd silently write "x.mp4" instead without telling them) -- so instead
+    we REJECT outright whenever the raw name contains any directory
+    component at all (`safe_name != raw_name`), on top of the emptiness
+    checks. This is what makes `POST .../matches` with
+    `filename="../pwn.mp4"` or `filename="/tmp/pwn.mp4"` a 400, not a
+    silent-success-as-"pwn.mp4"."""
+    safe_name = Path(raw_name).name
+    if not safe_name or safe_name in (".", "..") or safe_name != raw_name:
+        raise HTTPException(status_code=400, detail="invalid filename")
+    return safe_name
+
+
 @router.post("/matches", status_code=202)
 async def upload_match(
     file: UploadFile = File(...), settings: Settings = Depends(get_settings)
 ) -> dict:
-    suffix = Path(file.filename or "").suffix.lower()
+    raw_name = file.filename or "upload"
+    safe_name = _sanitize_upload_filename(raw_name)
+
+    suffix = Path(safe_name).suffix.lower()
     if suffix not in ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(
             status_code=400,
@@ -121,7 +145,20 @@ async def upload_match(
     uploads_root = Path(settings.data_dir) / "uploads"
     staging_dir = uploads_root / f"staging-{uuid.uuid4().hex}"
     staging_dir.mkdir(parents=True, exist_ok=True)
-    staged_path = staging_dir / (file.filename or "upload")
+    staged_path = staging_dir / safe_name
+
+    # Belt-and-braces confinement check: `safe_name` is already a bare,
+    # single-component filename (validated above), so this should never
+    # actually trip -- but re-deriving the guarantee from `resolve()` +
+    # `is_relative_to()`, rather than trusting the string-level checks
+    # above alone, costs nothing and doesn't rely on getting every future
+    # edge case of `_sanitize_upload_filename` right.
+    resolved_staged = staged_path.resolve()
+    resolved_staging_dir = staging_dir.resolve()
+    if not resolved_staged.is_relative_to(resolved_staging_dir):
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="invalid filename")
+
     max_bytes = settings.max_upload_mb * 1024 * 1024
 
     try:
@@ -138,6 +175,10 @@ async def upload_match(
                     break
                 out.write(chunk)
         if oversize:
+            # Backstop for clients that lie about/omit Content-Length --
+            # the primary check is `main.py`'s request middleware, which
+            # rejects an oversize request before Starlette ever reads the
+            # body (see that module's docstring, I4).
             raise HTTPException(
                 status_code=413,
                 detail=f"File exceeds the {settings.max_upload_mb}MB upload limit",
@@ -153,7 +194,10 @@ async def upload_match(
                 detail=f"Video is ~{duration:.0f}s, exceeds the "
                 f"{settings.max_duration_s}s limit",
             )
-    except HTTPException:
+    except Exception:
+        # ANY failure past this point -- not just the HTTPExceptions raised
+        # above, but e.g. an unexpected OSError while writing -- must not
+        # leak the staging directory.
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
     finally:
@@ -161,14 +205,20 @@ async def upload_match(
 
     conn = _db_connect(settings)
     try:
-        job_id = db.create_job(conn, file.filename)
+        # Store the sanitized name, never the raw client-supplied one -- a
+        # future reader of this row (e.g. `get_match_video` below) must be
+        # able to trust `row["filename"]` is a bare filename with no
+        # directory components, even though we additionally re-confine it
+        # defensively there too (belt-and-braces for any PRE-EXISTING row
+        # written before this fix landed).
+        job_id = db.create_job(conn, safe_name)
     finally:
         conn.close()
 
     final_dir = uploads_root / job_id
     uploads_root.mkdir(parents=True, exist_ok=True)
     shutil.move(str(staging_dir), str(final_dir))
-    # final_dir / file.filename now matches worker.job_video_path's fixed
+    # final_dir / safe_name now matches worker.job_video_path's fixed
     # convention (`<data_dir>/uploads/<job_id>/<filename>`).
 
     return {"job_id": job_id}
@@ -203,8 +253,22 @@ def get_match_tracks(job_id: str, settings: Settings = Depends(get_settings)) ->
 @router.get("/matches/{job_id}/video")
 def get_match_video(job_id: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     row = _require_done_job(settings, job_id)
-    path = Path(worker.job_video_path(settings, row))
-    if not path.is_file():
+    # `worker.job_video_path` builds `<data_dir>/uploads/<job_id>/<filename>`
+    # from the DB row's stored `filename`. That column is sanitized to a
+    # bare filename at write time by `upload_match` (see
+    # `_sanitize_upload_filename`), but a row written before that fix
+    # landed -- or written by any future code path that doesn't go through
+    # `upload_match` -- could still carry a `filename` with directory
+    # components in it. Re-confine here too so a pre-existing/bad row can
+    # never become a read primitive outside this job's own upload
+    # directory.
+    job_dir = (Path(settings.data_dir) / "uploads" / row["id"]).resolve()
+    path = Path(worker.job_video_path(settings, row)).resolve()
+    try:
+        confined = path.is_relative_to(job_dir)
+    except ValueError:
+        confined = False
+    if not confined or not path.is_file():
         raise HTTPException(status_code=404, detail="video not found")
     return FileResponse(path)
 
@@ -260,9 +324,19 @@ def _confined_sample_dir(settings: Settings, sample_id: str) -> Path:
     FastAPI's default (non-`:path`) string converter already rejects any
     segment containing "/", but ".." alone is a legal single path segment
     -- reusing the resolve-and-confine pattern here (see `main.py`'s static
-    mount for the fuller version/rationale) closes that off defensively."""
+    mount for the fuller version/rationale) closes that off defensively.
+
+    A literal NUL byte (from a `%00`-encoded segment) must degrade to a
+    clean 404, not an unhandled `ValueError` out of `Path.resolve()` --
+    checked up front AND the `resolve()` call itself is wrapped, mirroring
+    `main.py`'s static-mount guard."""
+    if "\x00" in sample_id:
+        raise HTTPException(status_code=404, detail="unknown sample id")
     root = Path(settings.samples_dir).resolve()
-    candidate = (root / sample_id).resolve()
+    try:
+        candidate = (root / sample_id).resolve()
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail="unknown sample id")
     try:
         confined = candidate.is_relative_to(root)
     except ValueError:

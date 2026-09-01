@@ -20,11 +20,11 @@ the SAME code path handles (a) real static assets, (b) the SPA
 `index.html` fallback for client-side routes, AND (c) the traversal guard,
 with no risk of the three diverging. Three things this must get right,
 each with a probe in `test_api.py`:
-  1. `/api`-prefixed paths NEVER fall through to the SPA fallback (checked
-     against the raw, not path-param-decoded... actually same value --
-     Starlette percent-decodes before route matching either way --
-     `request.url.path` before any of our own normalization, so a request
-     for an unmatched `/api/*` route gets a JSON 404, never `index.html`).
+  1. `/api`-prefixed paths NEVER fall through to the SPA fallback -- checked
+     against BOTH the raw `request.url.path` AND the slash-collapsed path
+     (a raw-only check misses "//api/..." -- double-leading-slash requests
+     don't start with the literal substring "/api/", so they'd otherwise
+     fall through to `index.html`).
   2. Repeated slashes are collapsed before filesystem resolution (`//etc/passwd`
      must not be treated as an absolute-from-root escape hatch).
   3. A literal NUL byte in the decoded path (`%00`) must degrade to a clean
@@ -39,7 +39,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from backend.app.config import Settings, get_settings
 from backend.app.routes import router
@@ -67,22 +67,73 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _content_length_exceeds_cap(request: Request, settings: Settings) -> bool:
+    declared = request.headers.get("content-length")
+    if declared is None:
+        return False
+    try:
+        declared_bytes = int(declared)
+    except ValueError:
+        return False
+    return declared_bytes > settings.max_upload_mb * 1024 * 1024
+
+
+def _register_upload_size_precheck(app: FastAPI) -> None:
+    """`POST /api/matches` Content-Length precheck (I4): the `UploadFile`
+    parameter on `routes.upload_match` is resolved via Starlette's
+    `request.form()`, which fully reads/spools the multipart body BEFORE
+    the route function body ever runs -- so a size check written inside
+    `upload_match` itself only ever fires AFTER an oversize body has
+    already been received in full. HTTP middleware, by contrast, runs
+    before routing/dependency-resolution touches the body at all, so
+    rejecting here (off the client-declared `Content-Length` header, when
+    present) is the earliest point this app can refuse an oversize upload
+    without reading it. `upload_match`'s own chunked read-loop size check
+    remains as a backstop for a client that lies about/omits
+    Content-Length (e.g. chunked transfer-encoding)."""
+
+    @app.middleware("http")
+    async def _upload_size_precheck(request: Request, call_next):
+        if request.method == "POST" and request.url.path == "/api/matches":
+            settings = get_settings()
+            if _content_length_exceeds_cap(request, settings):
+                return JSONResponse(
+                    {
+                        "detail": f"File exceeds the {settings.max_upload_mb}MB "
+                        "upload limit"
+                    },
+                    status_code=413,
+                )
+        return await call_next(request)
+
+
 def _mount_static(app: FastAPI, static_dir: str) -> None:
     root = Path(static_dir).resolve()
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str, request: Request):
-        # /api/* paths are handled entirely by `routes.router`, included
-        # BEFORE this catch-all, so only requests for undefined /api/*
-        # routes ever reach here -- those must get a JSON 404, never the
-        # SPA shell (carry-over #2).
-        raw_path = request.url.path
-        if raw_path == "/api" or raw_path.startswith("/api/"):
-            raise HTTPException(status_code=404, detail="not found")
-
         # Collapse repeated slashes (e.g. "//etc/passwd") before treating
         # the remainder as a relative filesystem path under `root`.
         normalized = _REPEATED_SLASHES.sub("/", full_path).lstrip("/")
+
+        # /api/* paths are handled entirely by `routes.router`, included
+        # BEFORE this catch-all, so only requests for undefined /api/*
+        # routes ever reach here -- those must get a JSON 404, never the
+        # SPA shell (carry-over #2). Checked against BOTH the raw request
+        # path (catches "/api/...") AND the slash-collapsed value (catches
+        # "//api/..." and other repeated-slash variants that would
+        # otherwise bypass a raw-path-only check -- I3: a bare
+        # `raw_path.startswith("/api/")` check, evaluated before
+        # collapsing, does NOT match "//api/foo" and previously let it fall
+        # through to the SPA shell).
+        raw_path = request.url.path
+        if (
+            raw_path == "/api"
+            or raw_path.startswith("/api/")
+            or normalized == "api"
+            or normalized.startswith("api/")
+        ):
+            raise HTTPException(status_code=404, detail="not found")
 
         if "\x00" in normalized:
             # An embedded NUL would raise ValueError out of Path.resolve()
@@ -116,6 +167,7 @@ def _mount_static(app: FastAPI, static_dir: str) -> None:
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="ShuttleSense", lifespan=lifespan)
+    _register_upload_size_precheck(app)
     app.include_router(router)
 
     if settings.static_dir:

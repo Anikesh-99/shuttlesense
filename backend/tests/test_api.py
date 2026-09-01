@@ -10,7 +10,9 @@ noise.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -123,6 +125,38 @@ def test_oversize_upload_rejected(client, tmp_dirs, monkeypatch):
         big = b"0" * (2 * 1024 * 1024)
         r = c.post("/api/matches", files={"file": ("m.mp4", big, "video/mp4")})
     assert r.status_code == 413
+
+
+@pytest.mark.parametrize("evil_filename", ["../pwn.mp4", "/tmp/pwn.mp4"])
+def test_upload_filename_traversal_rejected(client, tmp_dirs, evil_filename):
+    # C1 regression: the raw Content-Disposition filename must never be
+    # trusted as a filesystem path. Both a relative-escape ("../pwn.mp4")
+    # and an absolute path ("/tmp/pwn.mp4") must be rejected outright (400),
+    # not silently reduced to "pwn.mp4" and accepted.
+    r = client.post(
+        "/api/matches", files={"file": (evil_filename, b"0" * 1024, "video/mp4")}
+    )
+    assert r.status_code == 400
+
+    data_dir = Path(tmp_dirs.data_dir)
+    uploads_root = data_dir / "uploads"
+
+    # Nothing should exist outside <data_dir>/uploads/<job_id>/ as a result
+    # of this request: no job row, and no "pwn.mp4" written anywhere
+    # (specifically not at /tmp/pwn.mp4, nor as a sibling of data_dir).
+    conn = db.connect(worker.db_path(tmp_dirs))
+    n = conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+    conn.close()
+    assert n == 0
+
+    assert not Path("/tmp/pwn.mp4").exists()
+    assert not (data_dir.parent / "pwn.mp4").exists()
+    # If anything WAS staged under uploads_root, it must be confined to a
+    # staging-* directory that gets cleaned up -- assert no stray file
+    # named exactly "pwn.mp4" survives anywhere under uploads_root either.
+    if uploads_root.is_dir():
+        leaked = list(uploads_root.rglob("pwn.mp4"))
+        assert leaked == []
 
 
 def test_unknown_job_404(client):
@@ -269,6 +303,20 @@ def test_sample_id_traversal_confined(client, tmp_dirs):
     assert r.status_code == 404
 
 
+def test_sample_id_null_byte_rejected_cleanly(client, tmp_dirs):
+    # C2 regression: `_confined_sample_dir` used to call `.resolve()`
+    # outside any try/except, so a %00-encoded sample_id raised an
+    # unhandled ValueError -> 500. Must degrade to a clean 404 instead.
+    for path in (
+        "/api/samples/%00/report",
+        "/api/samples/%00/tracks",
+        "/api/samples/%00/video",
+        "/api/samples/good%00evil/report",
+    ):
+        r = client.get(path)
+        assert r.status_code == 404, f"{path} -> {r.status_code}"
+
+
 # --- static SPA serving / traversal confinement -----------------------------
 
 
@@ -314,21 +362,28 @@ def test_api_prefixed_unknown_path_is_json_404_not_spa(client_with_static):
 
 
 def test_traversal_dot_dot_segments(client_with_static):
+    # httpx/urllib resolves a LITERAL ".." typed in Python client-side
+    # before the request is ever sent (you can't navigate above an
+    # absolute URL's root), so this specific probe never reaches the
+    # server as a real ".." segment -- included per the brief, but
+    # `test_traversal_raw_asgi_literal_dot_dot` below (which bypasses
+    # httpx's URL parsing entirely) is what actually proves the server-side
+    # guard handles this case; this one just confirms no leak either way.
     r = client_with_static.get("/../../etc/passwd")
     assert r.status_code in (200, 404)
     if r.status_code == 200:
         assert "SPA SHELL" in r.text
+    assert "root:" not in r.text
 
 
 def test_traversal_percent_encoded_dot_dot(client_with_static):
     # %2e%2e survives httpx's own URL normalization (unlike a literal ".."
     # typed in Python, which httpx/urllib resolves client-side before the
-    # request is ever sent) -- this is the case that actually exercises the
-    # server-side resolve-and-confine guard.
+    # request is ever sent) -- this IS the case that actually exercises the
+    # server-side resolve-and-confine guard over the wire, so it must be a
+    # strict 404, not merely "not a leak".
     r = client_with_static.get("/%2e%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd")
-    assert r.status_code in (200, 404)
-    if r.status_code == 200:
-        assert "SPA SHELL" in r.text
+    assert r.status_code == 404
     assert "root:" not in r.text
 
 
@@ -344,6 +399,16 @@ def test_traversal_double_slash(client_with_static):
     assert "root:" not in r.text
 
 
+def test_traversal_double_slash_api_prefix_is_json_404_not_spa(client_with_static):
+    # I3 regression: the /api guard used to check ONLY the raw
+    # (pre-slash-collapse) request path, so "//api/..." -- which does not
+    # start with the literal substring "/api/" -- fell through to the SPA
+    # fallback and returned 200 HTML instead of a JSON 404.
+    r = client_with_static.get("http://testserver//api/does-not-exist")
+    assert r.status_code == 404
+    assert "SPA SHELL" not in r.text
+
+
 def test_traversal_null_byte_rejected_cleanly(client_with_static):
     # A %00 in the path must not raise an unhandled exception (e.g. from
     # Path.resolve() choking on an embedded NUL) -- must degrade to a clean
@@ -353,13 +418,106 @@ def test_traversal_null_byte_rejected_cleanly(client_with_static):
     assert r.status_code != 500
 
 
-def test_no_worker_env_prevents_thread_start(monkeypatch, tmp_dirs):
-    # Sanity check on the SHUTTLESENSE_NO_WORKER contract itself: with it
-    # set (the autouse fixture sets it), create_app()'s lifespan must not
-    # leave a lingering non-daemon/duplicate thread; we can't easily assert
-    # "no thread was started" directly, but we can assert app startup and
-    # shutdown complete quickly and don't hang (a real worker thread
-    # querying a tmp sqlite db from another thread would otherwise be a
-    # cross-thread sqlite3 hazard per db.py's docstring).
-    with TestClient(main_module.create_app()) as c:
-        assert c.get("/api/healthz").status_code == 200
+def _raw_asgi_get_status(app, raw_path: str) -> int:
+    """Drive `app` as a bare ASGI callable with a hand-built HTTP scope
+    whose `path` is exactly `raw_path` -- bypassing httpx/urllib's own
+    client-side URL normalization entirely (which would otherwise resolve
+    a literal ".." before the request is ever "sent"). This is the only way
+    to actually deliver a raw, un-collapsed "/../../etc/passwd" to the
+    server and observe what the resolve-and-confine guard does with it."""
+
+    async def _run() -> int:
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": raw_path,
+            "raw_path": raw_path.encode("utf-8"),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"host", b"testserver")],
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+        }
+        status_box: dict = {}
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                status_box["status"] = message["status"]
+
+        await app(scope, receive, send)
+        return status_box["status"]
+
+    return asyncio.run(_run())
+
+
+def test_traversal_raw_asgi_literal_dot_dot(tmp_dirs, static_dir, monkeypatch):
+    # Deliver a literal, un-collapsed "/../../etc/passwd" straight to the
+    # ASGI app (bypassing httpx's client-side URL normalization -- see
+    # `_raw_asgi_get_status`'s docstring) -- this is the real proof the
+    # resolve-and-confine guard rejects an actual ".."-escaping path, not
+    # just a client-side-neutered version of one.
+    monkeypatch.setenv("SHUTTLESENSE_STATIC_DIR", str(static_dir))
+    get_settings.cache_clear()
+    app = main_module.create_app()
+    status = _raw_asgi_get_status(app, "/../../etc/passwd")
+    assert status == 404
+
+
+def test_static_symlink_escape_confined(client_with_static, static_dir):
+    # The assertion that actually distinguishes real resolve()-based
+    # confinement from a naive string-prefix check: a symlink INSIDE the
+    # static root whose TARGET lives outside it. A prefix check on the
+    # unresolved path would see "static/leak.txt" (looks confined); only
+    # resolving symlinks before the is_relative_to() check catches this.
+    target = Path("/etc/passwd")
+    if not target.is_file():
+        pytest.skip("no /etc/passwd on this platform to symlink to")
+    link = static_dir / "leak.txt"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation not permitted in this environment")
+
+    r = client_with_static.get("/leak.txt")
+    assert r.status_code == 404
+    assert "root:" not in r.text
+
+
+def test_no_worker_env_returns_none_and_starts_no_thread(monkeypatch, tmp_dirs):
+    # I6: with SHUTTLESENSE_NO_WORKER=1 (set by the autouse _clean_env
+    # fixture), the helper must return None -- not merely "the app doesn't
+    # hang" -- and must not have started a thread at all.
+    before = {t.ident for t in threading.enumerate()}
+    result = main_module._start_worker_thread(tmp_dirs)
+    after = {t.ident for t in threading.enumerate()}
+    assert result is None
+    assert after == before
+
+
+def test_worker_thread_starts_when_not_disabled(monkeypatch, tmp_dirs):
+    # I6: without SHUTTLESENSE_NO_WORKER, _start_worker_thread must return
+    # a live Thread. run_forever is monkeypatched to a fast no-op so the
+    # thread exits almost immediately rather than polling a tmp db forever
+    # (avoids the exact db.py cross-thread hazard this whole env var exists
+    # to prevent, while still proving the thread-start path itself works).
+    monkeypatch.delenv("SHUTTLESENSE_NO_WORKER", raising=False)
+
+    ran = threading.Event()
+
+    def fake_run_forever(settings):
+        ran.set()
+
+    monkeypatch.setattr(main_module, "run_forever", fake_run_forever)
+
+    thread = main_module._start_worker_thread(tmp_dirs)
+    assert thread is not None
+    assert isinstance(thread, threading.Thread)
+    assert thread.daemon is True
+    thread.join(timeout=2)
+    assert ran.is_set()
