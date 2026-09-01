@@ -59,12 +59,13 @@ export default function Report({ kind, id }) {
       });
 
     // Fix round 1: `players` (real competitor names, for the score-race
-    // legend -- see Momentum.jsx's doc comment) is fetched SEPARATELY and
-    // is purely an enhancement: a "match" job never has one (no meta.json
-    // at all for uploads), and even for a sample, a missing/malformed
-    // `players` field on an older/hand-edited meta.json must never block
-    // or fail the report itself -- so this promise's rejection is swallowed
-    // here, not merged into the report/tracks Promise.all above.
+    // legend -- see Momentum.jsx's doc comment; also fed to RallyList's
+    // winner cell, same rationale) is fetched SEPARATELY and is purely an
+    // enhancement: a "match" job never has one (no meta.json at all for
+    // uploads), and even for a sample, a missing/malformed `players` field
+    // on an older/hand-edited meta.json must never block or fail the
+    // report itself -- so this promise's rejection is swallowed here, not
+    // merged into the report/tracks Promise.all above.
     if (kind === "sample") {
       fetchSampleMeta(id)
         .then((meta) => {
@@ -144,7 +145,7 @@ export default function Report({ kind, id }) {
 
       <Momentum report={report} players={players} onTimeRef={playheadRef} onSeek={handleSeek} />
 
-      <RallyList report={report} onTimeRef={playheadRef} onSeek={handleSeek} />
+      <RallyList report={report} players={players} onTimeRef={playheadRef} onSeek={handleSeek} />
     </div>
   );
 }

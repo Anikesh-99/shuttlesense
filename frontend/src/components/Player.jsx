@@ -417,7 +417,16 @@ const Player = forwardRef(function Player({ report, tracks, videoUrl, onTimeRef 
                 key={idx}
                 className="ss-player__rally"
                 style={{ left: `${start * 100}%`, width: `${width * 100}%` }}
-                title={`Rally ${idx + 1}${r.winner != null ? ` · winner: player ${r.winner}` : ""}`}
+                // Final-review fix: this tooltip must not surface `r.winner`
+                // (ShuttleSet's match-scoped label identity) as "player N"
+                // on a rally block that's otherwise entirely about the
+                // court-side skeleton slot -- see Momentum.jsx's doc
+                // comment for why those two "player N" identities are
+                // unrelated and conflating them is misleading. Real
+                // competitor names aren't plumbed into Player (this
+                // tooltip's job is navigation, not winner attribution), so
+                // the winner is simply dropped here rather than mislabeled.
+                title={`Rally ${idx + 1}`}
               />
             );
           })}

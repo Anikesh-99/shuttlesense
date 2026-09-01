@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { rallySummaries } from "../lib/stats.js";
 import "./RallyList.css";
 
-const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"];
-
 /**
  * RallyList: one row per rally (from `rallySummaries`), each clickable to
  * seek the video to that rally's start frame. The row for whichever rally
@@ -15,14 +13,36 @@ const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"];
  * into shared state -- it only calls setState when the ACTIVE ROW INDEX
  * changes (not on every frame), so in practice this re-renders only a
  * few times per rally, not 60x/sec.
+ *
+ * Winner cell identity (final-review fix, see Momentum.jsx's doc comment
+ * for the full two-axes rationale): `rally.winner` is ShuttleSet's
+ * MATCH-scoped label identity (`0`/`1` = who eventually wins/loses the
+ * match), NOT the pipeline's per-frame court-side skeleton slot -- the two
+ * have NO reliable correspondence (measured 5.7%/68.6% agreement across
+ * two samples). This cell must therefore never use `PLAYER_COLOR`
+ * (green/blue, the skeleton palette) for the winner text, and must prefer
+ * the real competitor NAME (`players` prop, `[name0, name1]`, same shape
+ * and indexing as Momentum's) over a bare "Player N" -- exactly like
+ * Momentum's score-race labeling. `players` is absent for every match-job
+ * upload and for any sample missing ShuttleSet ground truth; the cell then
+ * falls back to a neutral-ink "Winner: P{n}" (still never PLAYER_COLOR).
  */
-export default function RallyList({ report, onTimeRef, onSeek }) {
+export default function RallyList({ report, players, onTimeRef, onSeek }) {
   const [activeIndex, setActiveIndex] = useState(-1);
 
   const rallies = report?.rallies || [];
   const strokes = report?.strokes || [];
   const fps = report?.fps || 30;
   const summaries = rallySummaries(rallies, strokes);
+
+  const hasPlayers =
+    Array.isArray(players) &&
+    players.length === 2 &&
+    players.every((p) => typeof p === "string" && p);
+  const winnerText = (winner) => {
+    if (winner == null) return "No winner recorded";
+    return hasPlayers ? `${players[winner]} won` : `Winner: P${winner}`;
+  };
 
   useEffect(() => {
     if (!onTimeRef) return undefined;
@@ -77,12 +97,10 @@ export default function RallyList({ report, onTimeRef, onSeek }) {
                 <span className="ss-rallylist__endedby">
                   {r.endedBy ? `Ended by ${r.endedBy}` : "No strokes recorded"}
                 </span>
-                <span
-                  className="ss-rallylist__winner"
-                  style={winner != null ? { color: PLAYER_COLOR[winner] } : undefined}
-                >
-                  {winner === 0 ? "Player 0 won" : winner === 1 ? "Player 1 won" : "No winner recorded"}
-                </span>
+                {/* Neutral ink only (see doc comment above) -- never
+                    PLAYER_COLOR/the skeleton palette, no matter which
+                    branch of `winnerText` fires. */}
+                <span className="ss-rallylist__winner">{winnerText(winner)}</span>
               </button>
             </li>
           );

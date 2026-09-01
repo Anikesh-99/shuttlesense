@@ -210,23 +210,34 @@ async def upload_match(
     finally:
         await file.close()
 
-    conn = _db_connect(settings)
+    # Final-review fix: db.create_job + the staging->final move must be
+    # inside the SAME staging-cleanup guard as the write/validate steps
+    # above -- an unhandled failure in either (e.g. a DB error, or
+    # shutil.move hitting a permissions/disk error) must not leak a
+    # `staging-<uuid>/` directory under uploads_root the way it would if
+    # this were left as a bare, unguarded sequence after the try/except
+    # above.
     try:
-        # Store the sanitized name, never the raw client-supplied one -- a
-        # future reader of this row (e.g. `get_match_video` below) must be
-        # able to trust `row["filename"]` is a bare filename with no
-        # directory components, even though we additionally re-confine it
-        # defensively there too (belt-and-braces for any PRE-EXISTING row
-        # written before this fix landed).
-        job_id = db.create_job(conn, safe_name)
-    finally:
-        conn.close()
+        conn = _db_connect(settings)
+        try:
+            # Store the sanitized name, never the raw client-supplied one --
+            # a future reader of this row (e.g. `get_match_video` below)
+            # must be able to trust `row["filename"]` is a bare filename
+            # with no directory components, even though we additionally
+            # re-confine it defensively there too (belt-and-braces for any
+            # PRE-EXISTING row written before this fix landed).
+            job_id = db.create_job(conn, safe_name)
+        finally:
+            conn.close()
 
-    final_dir = uploads_root / job_id
-    uploads_root.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(staging_dir), str(final_dir))
-    # final_dir / safe_name now matches worker.job_video_path's fixed
-    # convention (`<data_dir>/uploads/<job_id>/<filename>`).
+        final_dir = uploads_root / job_id
+        uploads_root.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staging_dir), str(final_dir))
+        # final_dir / safe_name now matches worker.job_video_path's fixed
+        # convention (`<data_dir>/uploads/<job_id>/<filename>`).
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
 
     return {"job_id": job_id}
 
