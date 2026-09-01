@@ -33,6 +33,15 @@ function App() {
   const route = useHashRoute();
   const [uploadOpen, setUploadOpen] = useState(false);
 
+  // Fix round 1 belt-and-braces: Upload already closes itself on a
+  // successful "done" redirect (see Upload.jsx), but ANY route change
+  // (including a manual hash edit, or the brand link) should also close
+  // it -- a stale upload modal must never linger over a newly-navigated
+  // page.
+  useEffect(() => {
+    setUploadOpen(false);
+  }, [route]);
+
   return (
     <div className="ss-app">
       <a className="ss-app__skip" href="#ss-main">

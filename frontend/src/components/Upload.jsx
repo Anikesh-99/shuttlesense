@@ -13,18 +13,28 @@ const PHASE_TEXT = {
 
 /**
  * Upload: file input + POST /api/matches, then polls GET /api/matches/:id
- * every 2s until the job's `status` is "done" (redirect to #/match/:id) or
- * "failed" (show the backend's friendly `error` text with a retry
- * option). Rendered as a modal overlay by App.jsx; `onClose` dismisses it
- * without navigating (only meaningful before/after a terminal state --
- * closing mid-poll just stops polling, it does not cancel the backend
- * job).
+ * every 2s until the job's `status` is "done" (redirect to #/match/:id AND
+ * call `onClose` so the modal doesn't linger over the freshly-navigated
+ * report) or "failed" (show the backend's friendly `error` text with a
+ * retry option, modal stays open). Rendered as a modal overlay by
+ * App.jsx; `onClose` also dismisses it manually via the close button/
+ * backdrop click without navigating (only meaningful before a terminal
+ * state -- closing mid-poll just stops polling, it does not cancel the
+ * backend job).
  */
 export default function Upload({ onClose }) {
   const [file, setFile] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | uploading | queued | processing | failed
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  // Keep the ref in sync via an effect, not a bare assignment during
+  // render -- assigning a ref during render is impure (oxlint's
+  // react(refs) rule flags it) even though it "works"; an effect is the
+  // correct place to synchronize a ref with a prop.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -44,6 +54,12 @@ export default function Upload({ onClose }) {
           if (row.status === "done") {
             stopPolling();
             window.location.hash = `#/match/${encodeURIComponent(jobId)}`;
+            // Fix round 1: the modal must not linger over the freshly
+            // navigated report -- without this, the user lands on
+            // #/match/:id with Upload still overlaying it. Read `onClose`
+            // off a ref (rather than a `startPolling` dependency) so a
+            // parent re-render mid-poll can never recreate the interval.
+            onCloseRef.current?.();
           } else if (row.status === "failed") {
             stopPolling();
             setPhase("failed");

@@ -29,6 +29,12 @@ const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"]; // must match Player.jsx / index.cs
  *      NOT a second y-scale -- it's a categorical "who's attacking more"
  *      strip, one color swatch per time window.
  *
+ * The player-identity legend (colored dot + "Player 0"/"Player 1") in the
+ * head is ALWAYS shown, not gated on the score-race layer -- ribbon-only
+ * mode still needs the reader to know which color is which player (Fix
+ * round 1), and the ribbon-only note additionally repeats a compact inline
+ * key next to itself.
+ *
  * Interaction: hovering the chart shows a crosshair + tooltip (frame,
  * score) snapped to the nearest data point; clicking anywhere on the
  * chart or ribbon seeks the video to that x position via `onSeek(frame)`.
@@ -154,22 +160,35 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
     <div className="ss-momentum">
       <div className="ss-momentum__head">
         <h2>Momentum</h2>
-        {displaySeries && (
-          <div className="ss-momentum__legend">
-            <span className="ss-momentum__legend-item">
-              <i style={{ background: PLAYER_COLOR[0] }} /> Player 0
-            </span>
-            <span className="ss-momentum__legend-item">
-              <i style={{ background: PLAYER_COLOR[1] }} /> Player 1
-            </span>
-          </div>
-        )}
+        <div className="ss-momentum__legend">
+          <span className="ss-momentum__legend-item">
+            <i style={{ background: PLAYER_COLOR[0] }} /> Player 0
+          </span>
+          <span className="ss-momentum__legend-item">
+            <i style={{ background: PLAYER_COLOR[1] }} /> Player 1
+          </span>
+        </div>
       </div>
 
+      {/* Fix round 1: ribbon-only mode (every real sample/upload today,
+          since winner assignment isn't implemented anywhere in the
+          pipeline yet -- see Task 18 report) must NOT ship with an
+          unlabeled green/blue swatch strip. The identity key above
+          already covers this (it's no longer gated on `displaySeries`),
+          but repeat it inline, next to the "attacking control" label
+          itself, so it reads correctly even if the chart is scrolled or
+          the head legend is out of view. Ink-token text, color only on
+          the swatch -- never the text itself. */}
       {!displaySeries && (
         <p className="ss-momentum__note">
           Score race unavailable &mdash; one or more rallies has no recorded winner. Showing
-          attacking-control only.
+          attacking control only:{" "}
+          <span className="ss-momentum__inline-key">
+            <i style={{ background: PLAYER_COLOR[0] }} /> P0
+          </span>
+          <span className="ss-momentum__inline-key">
+            <i style={{ background: PLAYER_COLOR[1] }} /> P1
+          </span>
         </p>
       )}
 
@@ -273,8 +292,15 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
           </div>
           {hoverScore && (
             <div className="ss-momentum__tooltip-scores">
-              <span className="ss-momentum__tooltip-p0">P0 {hoverScore.p0}</span>
-              <span className="ss-momentum__tooltip-p1">P1 {hoverScore.p1}</span>
+              {/* Fix round 1: text stays in ink tokens, never the series
+                  color (the swatch dot carries identity instead) -- see
+                  `.ss-momentum__tooltip-scores` in Momentum.css. */}
+              <span>
+                <i style={{ background: PLAYER_COLOR[0] }} /> P0 {hoverScore.p0}
+              </span>
+              <span>
+                <i style={{ background: PLAYER_COLOR[1] }} /> P1 {hoverScore.p1}
+              </span>
             </div>
           )}
         </div>

@@ -44,6 +44,27 @@
   color: var(--text-2);
   font-size: 13px;
   margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Fix round 1: ribbon-only mode's inline "who's which color" key --
+   ink-token text (inherits .ss-momentum__note's var(--text-2)), color
+   only on the swatch dot. */
+.ss-momentum__inline-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+}
+
+.ss-momentum__inline-key i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
 .ss-momentum__svg {
@@ -123,15 +144,25 @@
   color: var(--text-1);
 }
 
+/* Fix round 1: score readout text stays in ink tokens (var(--text-1)),
+   never the series color -- identity is carried by the swatch dot only,
+   matching the dataviz "text in ink, not series color" rule (same
+   treatment as .ss-momentum__endlabel above). */
 .ss-momentum__tooltip-scores {
   display: flex;
   gap: 10px;
+  color: var(--text-1);
 }
 
-.ss-momentum__tooltip-p0 {
-  color: var(--player-0);
+.ss-momentum__tooltip-scores span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.ss-momentum__tooltip-p1 {
-  color: var(--player-1);
+.ss-momentum__tooltip-scores i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
