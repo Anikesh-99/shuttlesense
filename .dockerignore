@@ -62,8 +62,11 @@ CLAUDE.md
 .DS_Store
 
 # NOTE: deliberately NOT excluded -- the runtime image needs these:
-#   backend/models/*.onnx     (DVC-tracked, present on disk in this worktree)
-#   backend/samples/**/video.mp4  (DVC-tracked, present on disk in this worktree)
+#   backend/models/*.onnx     (gitignored, registry-of-record is W&B artifacts -- NOT DVC-tracked,
+#                              no .dvc pointer file exists for these; present on disk in this
+#                              worktree only. See README's "Data / model provenance" section.)
+#   backend/samples/**/video.mp4  (DVC-tracked -- has a committed .dvc pointer; present on disk
+#                                  in this worktree)
 #   backend/app/, backend/__init__.py, backend/requirements.txt
 #   core/shuttlesense_core/, core/pyproject.toml
 #   frontend/src/, frontend/public/, frontend/index.html,

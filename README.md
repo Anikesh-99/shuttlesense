@@ -139,21 +139,34 @@ mode** (no `WANDB_API_KEY` configured) -- offline run directories are at `wandb/
 this repo. _Add the synced W&B project URL here after running `wandb sync wandb/offline-run-*`
 (see `NEXT-STEPS.md`)._
 
-## Data / model provenance (DVC)
+## Data / model provenance (DVC + W&B)
 
-`training/data/raw/shuttleset`, `backend/models/*.onnx`, and `backend/samples/*/video.mp4` are all
-DVC-tracked, **not** committed to git (`git log` only ever sees the small `.dvc` pointer files +
-`manifest.json`). No DVC remote is configured yet in this repo -- see `NEXT-STEPS.md` for the
-one-time `dvc remote add` + `dvc push` steps a maintainer needs to run once, after which anyone who
-clones the repo can `dvc pull` to fetch the actual data/model/sample-video bytes.
+Two different mechanisms, don't conflate them:
+
+- **DVC-tracked** (has a committed `.dvc` pointer file in git): `training/data/raw/shuttleset`,
+  `training/data/processed/poses`, and `backend/samples/*/video.mp4`. No DVC remote is configured
+  yet in this repo -- see `NEXT-STEPS.md` for the one-time `dvc remote add` + `dvc push` steps a
+  maintainer needs to run once, after which anyone who clones the repo can `dvc pull` to fetch
+  these bytes.
+- **NOT DVC-tracked**: `backend/models/*.onnx` (the trained stroke/rally weights). These are
+  gitignored (only `manifest.json` is committed) but have no `.dvc` pointer -- their registry of
+  record is **W&B artifacts** (`stroke-tcn:latest` / `rally-gru:latest`, uploaded by
+  `training/export_onnx.py --wandb`), not DVC. This training run happened in **offline W&B mode**
+  (no `WANDB_API_KEY` configured in this environment -- see the W&B section above), so those
+  artifacts currently only exist in the local `wandb/offline-run-*` directories (themselves
+  gitignored) until someone runs `wandb sync` against a real, network-reachable W&B project. Right
+  now, **the only readily available copy of the trained `.onnx` weights is the files already on
+  disk in a populated working tree** (like this one) -- there is no `dvc pull` or `wandb artifact
+  get` that will fetch them from a fresh clone until that sync happens. Add real model-recovery
+  instructions here once `wandb sync` has been run and the artifacts are network-reachable.
 
 **This matters for building the Docker image locally**: the Dockerfile does **not** run `dvc pull`
-(no remote is configured for it to pull from yet) -- it `COPY`s `backend/models/` and
-`backend/samples/` straight from your local working tree's filesystem into the image. If you've
-just done a fresh `git clone` (as opposed to working in this already-populated worktree), those
-files won't exist on disk yet and the demo will 404 on samples/models until you either run
-`dvc pull` (once a remote exists) or otherwise place the `.onnx` files and sample `video.mp4`s at
-their expected paths yourself before `docker build`.
+or fetch any W&B artifact -- it `COPY`s `backend/models/` and `backend/samples/` straight from your
+local working tree's filesystem into the image. If you've just done a fresh `git clone` (as opposed
+to working in this already-populated worktree), those files won't exist on disk yet and the demo
+will 404 on samples/models until you either run `dvc pull` (once a remote exists, for the sample
+videos) and pull/copy the `.onnx` weights from wherever they're recoverable (once W&B is synced),
+or otherwise place them at their expected paths yourself before `docker build`.
 
 ## Running locally
 
