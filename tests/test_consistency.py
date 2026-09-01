@@ -30,7 +30,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-@pytest.mark.xfail(reason="pipeline lands in Task 15", strict=True)
 def test_train_and_serve_import_same_feature_functions():
     import backend.app.pipeline as sp
     import shuttlesense_core.features as cf
