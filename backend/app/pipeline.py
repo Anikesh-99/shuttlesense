@@ -238,13 +238,15 @@ def analyze(
     """
     pose_fn = pose_fn or extract_poses_onnx
 
-    # Manifest + ONNX sessions loaded before pose_fn so a missing/broken
-    # models_dir fails fast rather than after the (potentially expensive,
-    # real-rtmlib) pose-extraction pass.
+    # Manifest read before pose_fn so a missing/broken models_dir fails fast
+    # rather than after the (potentially expensive, real-rtmlib)
+    # pose-extraction pass. ONNX sessions, deliberately, are NOT constructed
+    # here -- they're built further below, AFTER the zero-frame guard, so a
+    # 0-frame pose extraction can raise the "no rallies detected" friendly
+    # path (see below) without requiring backend/models/*.onnx to even be
+    # present.
     manifest = json.loads((Path(models_dir) / "manifest.json").read_text())
     rally_threshold = manifest["rally"]["threshold"]  # RULED: never hardcode/re-derive
-    rally_sess = ort.InferenceSession(str(Path(models_dir) / "rally_gru.onnx"))
-    stroke_sess = ort.InferenceSession(str(Path(models_dir) / "stroke_tcn.onnx"))
 
     kpts, scores, meta = pose_fn(video_path, target_fps)
     fps = float(meta["fps_sampled"])
@@ -256,6 +258,9 @@ def analyze(
         # rallies detected" contract callers (the worker) already handle.
         raise ValueError("no rallies detected")
 
+    rally_sess = ort.InferenceSession(str(Path(models_dir) / "rally_gru.onnx"))
+    stroke_sess = ort.InferenceSession(str(Path(models_dir) / "stroke_tcn.onnx"))
+
     rf = rally_frame_features(kpts, scores)  # (T,4)
     T = rf.shape[0]
 
@@ -264,7 +269,14 @@ def analyze(
     chunk_probs = _sigmoid(chunk_logits)
     real = mask.reshape(-1) > 0
     probs = chunk_probs.reshape(-1)[real]  # (T,) -- pad-position outputs discarded
-    assert len(probs) == T, f"chunked rally probs length {len(probs)} != T={T}"
+    if len(probs) != T:
+        # Not a bare assert: a bare `assert` is stripped under `python -O`,
+        # which would let a reassembly bug silently corrupt downstream
+        # interval detection instead of failing loudly.
+        raise RuntimeError(
+            f"chunked rally probs length {len(probs)} != T={T} -- "
+            "_chunk_frames reassembly bug"
+        )
 
     intervals = probs_to_intervals(
         probs, threshold=rally_threshold, min_len=int(fps), merge_gap=int(fps / 2)

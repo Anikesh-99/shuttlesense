@@ -12,10 +12,13 @@ _HAVE_ONNX = Path(MODELS_DIR, "stroke_tcn.onnx").exists() and Path(
     MODELS_DIR, "rally_gru.onnx"
 ).exists()
 
-# Only tests that actually call analyze() (and therefore need real ONNX
-# sessions -- analyze() now loads the manifest + both onnx sessions before
-# anything else) are guarded; _chunk_frames/assign_players/empty-input unit
-# tests below must run with no backend/models/*.onnx present.
+# Only tests that reach analyze()'s ONNX inference path (i.e. the pose_fn
+# they inject returns >0 frames, so analyze() gets past the zero-frame guard
+# and constructs real ort.InferenceSessions) are guarded. analyze() reads
+# manifest.json unconditionally but only builds the onnx sessions AFTER that
+# guard, so the zero-frame "no rallies detected" regression test and the
+# manifest-only test below run onnx-free; _chunk_frames/assign_players/
+# empty-input unit tests likewise need no backend/models/*.onnx present.
 requires_onnx = pytest.mark.skipif(
     not _HAVE_ONNX, reason="requires backend/models/*.onnx (Task 13 export)"
 )
@@ -76,8 +79,10 @@ def fake_pose_zero_frames(video_path, target_fps):
     )
 
 
-@requires_onnx
 def test_analyze_raises_friendly_error_on_zero_frame_pose():
+    # No @requires_onnx: analyze() raises before ever constructing an
+    # ort.InferenceSession for a 0-frame pose_fn (see pipeline.py), so this
+    # regression test must pass even with no backend/models/*.onnx present.
     with pytest.raises(ValueError, match="no rallies detected"):
         analyze("ignored.mp4", models_dir=MODELS_DIR, pose_fn=fake_pose_zero_frames)
 
@@ -148,8 +153,9 @@ def test_tracks_kpts_serialize_without_float64_widening():
     assert re.search(r"\d\.\d{3,}", payload) is None
 
 
-@requires_onnx
 def test_analyze_reads_threshold_from_manifest_not_hardcoded():
+    # No @requires_onnx: only reads manifest.json, never touches the .onnx
+    # files themselves.
     manifest = json.loads(Path(MODELS_DIR, "manifest.json").read_text())
     assert manifest["rally"]["threshold"] == 0.6
 
@@ -249,9 +255,16 @@ def _people_case(seed: int, n_people: int, low_conf_person: int | None = None):
         dict(seed=0, n_people=0, low_conf_person=None),
         dict(seed=1, n_people=1, low_conf_person=None),
         dict(seed=2, n_people=3, low_conf_person=None),
-        dict(seed=3, n_people=3, low_conf_person=1),  # triggers ungated fallback
+        # n_people=2 (not 3): with 3 people, the low-confidence person's mean
+        # score is so far below the other two's that top-2-by-mean-score
+        # selection excludes them entirely -- depth_stat, and therefore the
+        # ungated max(y) fallback, never even runs on them (dead coverage,
+        # fix round 2 item 1). With exactly 2 people, both are unconditionally
+        # selected (order = top 2 of 2), so the low-confidence one is
+        # guaranteed to reach depth_stat and hit its fallback branch.
+        dict(seed=3, n_people=2, low_conf_person=0),  # triggers ungated fallback
     ],
-    ids=["N=0", "N=1", "N=3", "N=3-low-confidence-fallback"],
+    ids=["N=0", "N=1", "N=3", "N=2-low-confidence-fallback"],
 )
 def test_assign_players_matches_training_extract_poses(kwargs):
     # Guards against backend/app/pipeline.assign_players silently drifting

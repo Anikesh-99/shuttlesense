@@ -61,10 +61,17 @@ def _atomic_write_json(path: Path, obj) -> None:
     file first, then `os.replace` it into place. Prevents a reader (the API,
     Task 16) from ever observing a partially-written `report.json`/
     `tracks.json`, and prevents a crash mid-write from leaving a corrupt file
-    at the final path."""
+    at the final path. On failure (e.g. `json.dumps` blowing up on a bad
+    object, or the write itself failing), the orphaned `.tmp` file is
+    unlinked before the exception propagates, so a failed job doesn't also
+    litter the output directory with stale temp files."""
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(obj))
-    os.replace(tmp_path, path)
+    try:
+        tmp_path.write_text(json.dumps(obj))
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def run_once(settings) -> bool:
