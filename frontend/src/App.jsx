@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Home from "./pages/Home.jsx";
 import Report from "./pages/Report.jsx";
+import Upload from "./components/Upload.jsx";
 import "./App.css";
 
 /**
@@ -30,6 +31,7 @@ function useHashRoute() {
 
 function App() {
   const route = useHashRoute();
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   return (
     <div className="ss-app">
@@ -40,10 +42,18 @@ function App() {
         <a className="ss-app__brand" href="#/">
           Shuttle<span className="ss-app__brand-accent">Sense</span>
         </a>
+        <button
+          type="button"
+          className="ss-app__upload-cta"
+          onClick={() => setUploadOpen(true)}
+        >
+          Analyze your own video
+        </button>
       </header>
       <main id="ss-main">
         {route ? <Report kind={route.kind} id={route.id} /> : <Home />}
       </main>
+      {uploadOpen && <Upload onClose={() => setUploadOpen(false)} />}
     </div>
   );
 }

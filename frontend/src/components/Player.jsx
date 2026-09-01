@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "./Player.css";
 
 // ---------------------------------------------------------------------------
@@ -96,8 +104,18 @@ function formatClock(seconds) {
  *              re-render here, so a sibling (e.g. a Task 18 momentum chart)
  *              can read the live playhead without every frame re-rendering
  *              this whole tree.
+ *
+ * Ref contract (Task 18 carry-over #2, see forwardRef below): Player
+ * exposes an imperative `{ seekToFrame(frame) }` handle via `ref` so
+ * siblings that only know about frame indices (Momentum's click-to-seek,
+ * RallyList's row click) can drive playback without Report having to hold
+ * its own copy of the <video> element. Combined with the `onTimeRef`
+ * read-side above, the contract is: writes go through the ref handle,
+ * reads go through onTimeRef -- Report itself stays a thin pass-through
+ * and never needs `currentFrame` in its own React state (see Momentum.jsx
+ * / RallyList.jsx doc comments for the read side of this decision).
  */
-export default function Player({ report, tracks, videoUrl, onTimeRef }) {
+const Player = forwardRef(function Player({ report, tracks, videoUrl, onTimeRef }, ref) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const seekBarRef = useRef(null);
@@ -253,6 +271,23 @@ export default function Player({ report, tracks, videoUrl, onTimeRef }) {
     draw();
   }, [draw]);
 
+  // Write-side of the ref contract documented above: exposes a single
+  // `seekToFrame(frame)` imperative method so frame-space callers
+  // (Momentum's click-to-seek, RallyList's row click) can drive playback
+  // without needing to know about seconds/duration at all -- Player is the
+  // only thing that knows both coordinate spaces (fps).
+  useImperativeHandle(
+    ref,
+    () => ({
+      seekToFrame(frame) {
+        const video = videoRef.current;
+        if (!video || !fps) return;
+        video.currentTime = frame / fps;
+      },
+    }),
+    [fps],
+  );
+
   const handleLoadedMetadata = () => {
     const video = videoRef.current;
     if (video) setDuration(video.duration || 0);
@@ -293,7 +328,17 @@ export default function Player({ report, tracks, videoUrl, onTimeRef }) {
     }
   };
 
-  const playheadRatio = duration ? currentTime / duration : 0;
+  // Task 18 carry-over #1: drive the playhead from the SAME coordinate
+  // space as the rally blocks above (frame / nFrames), not currentTime /
+  // duration. The rally blocks are positioned in frame space because
+  // that's the report's native coordinate system; if the <video>'s actual
+  // `duration` (seconds, from the browser's demuxer) doesn't exactly equal
+  // `n_frames / fps` (it often won't -- container duration rounding,
+  // variable frame rate, etc.), a time-space playhead against frame-space
+  // blocks would visibly desync over the length of the video. Using
+  // currentFrame/nFrames for both keeps them locked together by
+  // construction.
+  const playheadRatio = nFrames ? currentFrame / nFrames : 0;
 
   const handleSeekKeyDown = (e) => {
     const video = videoRef.current;
@@ -390,7 +435,9 @@ export default function Player({ report, tracks, videoUrl, onTimeRef }) {
       </div>
     </div>
   );
-}
+});
+
+export default Player;
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();

@@ -1,0 +1,137 @@
+.ss-momentum {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ss-momentum__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ss-momentum__head h2 {
+  font-size: 15px;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+.ss-momentum__legend {
+  display: flex;
+  gap: 16px;
+}
+
+.ss-momentum__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+
+.ss-momentum__legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.ss-momentum__note {
+  color: var(--text-2);
+  font-size: 13px;
+  margin: 0;
+}
+
+.ss-momentum__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: crosshair;
+}
+
+.ss-momentum__grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* Line marks: 2px, one hue per player identity -- never a rank/color swap. */
+.ss-momentum__line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ss-momentum__line--p0 {
+  stroke: var(--player-0);
+}
+
+.ss-momentum__line--p1 {
+  stroke: var(--player-1);
+}
+
+/* Direct labels: text stays in ink tokens, never rendered in the series
+   color itself (the dataviz rule is "text in ink, not series color") --
+   the small marker dot beside it carries the color identity instead. */
+.ss-momentum__endlabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--text-1);
+}
+
+.ss-momentum__ribbon rect {
+  transition: opacity 120ms ease;
+}
+
+.ss-momentum__crosshair {
+  stroke: var(--text-2);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.ss-momentum__cursor {
+  stroke: var(--text-0);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 3px rgba(238, 241, 246, 0.5));
+  pointer-events: none;
+}
+
+.ss-momentum__tooltip {
+  position: relative;
+  transform: translateX(-50%);
+  width: fit-content;
+  background: rgba(10, 13, 18, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 10px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.ss-momentum__tooltip-frame {
+  color: var(--text-1);
+}
+
+.ss-momentum__tooltip-scores {
+  display: flex;
+  gap: 10px;
+}
+
+.ss-momentum__tooltip-p0 {
+  color: var(--player-0);
+}
+
+.ss-momentum__tooltip-p1 {
+  color: var(--player-1);
+}

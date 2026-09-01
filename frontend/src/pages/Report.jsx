@@ -1,15 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Player from "../components/Player.jsx";
+import Momentum from "../components/Momentum.jsx";
+import RallyList from "../components/RallyList.jsx";
 import { fetchReport, fetchTracks, videoUrl } from "../api.js";
 import "./Report.css";
 
 /**
  * Report page: fetches report.json + tracks.json (+ builds the video URL)
  * for a sample or finished match job and renders the annotated Player,
- * plus a rally list derived straight from `report.rallies`.
+ * the Momentum chart, and the rally list -- in that order, per the
+ * approved mockup (player hero, momentum below, rallies below that).
  *
  * `kind` is "sample" | "match", `id` is the sample id or job id -- both
  * come from App.jsx's hash-route parser.
+ *
+ * Player ref/onTimeRef contract (Task 18, see Player.jsx's doc comment
+ * for the full rationale): `playheadRef` is a plain mutated ref Player
+ * writes `{time, frame}` into every animation frame WITHOUT causing
+ * Report to re-render; Momentum and RallyList each read it via their own
+ * light rAF loops. `playerRef` is the write-side -- Player exposes an
+ * imperative `seekToFrame(frame)` so `handleSeek` below can drive
+ * playback from a plain frame index without Report needing to know
+ * anything about seconds/duration itself.
  */
 export default function Report({ kind, id }) {
   const [report, setReport] = useState(null);
@@ -17,6 +29,11 @@ export default function Report({ kind, id }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const playheadRef = useRef({ time: 0, frame: 0 });
+  const playerRef = useRef(null);
+
+  const handleSeek = useCallback((frame) => {
+    playerRef.current?.seekToFrame(frame);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,48 +114,18 @@ export default function Report({ kind, id }) {
       </header>
 
       <Player
+        ref={playerRef}
         report={report}
         tracks={tracks}
         videoUrl={videoUrl(kind, id)}
         onTimeRef={playheadRef}
       />
 
-      <section className="ss-report__rallies">
-        <h2>Rallies</h2>
-        {rallyCount === 0 ? (
-          <p className="ss-report__empty">No rallies detected in this footage.</p>
-        ) : (
-          <ol className="ss-report__rallylist">
-            {report.rallies.map((r, idx) => (
-              <li key={idx} className="ss-report__rallyrow">
-                <span className="ss-report__rallyidx mono">{String(idx + 1).padStart(2, "0")}</span>
-                <span className="ss-report__rallyspan mono">
-                  {formatFrame(r.start_frame, report.fps)}&ndash;{formatFrame(r.end_frame, report.fps)}
-                </span>
-                <span
-                  className={
-                    "ss-report__winner" +
-                    (r.winner === 0 ? " ss-report__winner--p0" : "") +
-                    (r.winner === 1 ? " ss-report__winner--p1" : "")
-                  }
-                >
-                  {r.winner === 0 ? "Player 0 won" : r.winner === 1 ? "Player 1 won" : "No winner recorded"}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
+      <Momentum report={report} onTimeRef={playheadRef} onSeek={handleSeek} />
+
+      <RallyList report={report} onTimeRef={playheadRef} onSeek={handleSeek} />
     </div>
   );
-}
-
-function formatFrame(frame, fps) {
-  if (!fps) return `f${frame}`;
-  const s = frame / fps;
-  const m = Math.floor(s / 60);
-  const rem = (s % 60).toFixed(1).padStart(4, "0");
-  return `${m}:${rem}`;
 }
 
 function formatDuration(seconds) {
