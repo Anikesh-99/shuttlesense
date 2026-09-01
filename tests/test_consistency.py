@@ -2,12 +2,13 @@
 
 `test_train_and_serve_import_same_feature_functions` guards against the classic
 train/serve skew bug: the serving pipeline must call the *exact same* feature
-functions used at training time (not a re-implementation that can drift). It is
-marked `xfail(strict=True)` until Task 15 creates `backend/app/pipeline.py`;
-`strict=True` means the suite goes RED (not just an ignorable expected-failure)
-if the test starts unexpectedly passing without the marker being removed --
-Task 15 must remove the marker, not merely make the test pass underneath it
-(CONTROLLER RULING, Task 13 carry-over 4; fix round 1 item 6).
+functions used at training time (not a re-implementation that can drift). It
+was marked `xfail(strict=True)` until Task 15 created `backend/app/pipeline.py`
+(`strict=True` meant the suite would go RED, not just an ignorable
+expected-failure, if the test started unexpectedly passing without the marker
+being removed). Task 15 has since created `backend/app/pipeline.py` and
+removed the marker, so this now runs and passes unconditionally (CONTROLLER
+RULING, Task 13 carry-over 4; fix round 1 item 6).
 
 `test_onnx_matches_torch` / `test_rally_onnx_matches_torch` guard against the
 ONNX export silently changing model behavior (e.g. wrong opset, wrong dynamic

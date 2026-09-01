@@ -8,6 +8,13 @@ ALL_CLASSES = STROKE_CLASSES + [NONE_CLASS]
 @dataclass
 class RallyInterval:
     start_frame: int
+    # end_frame is EXCLUSIVE (Python-slice convention): the rally spans
+    # frames [start_frame, end_frame), i.e. end_frame itself is NOT part of
+    # the rally. This is the report-layer contract (matches
+    # shuttlesense_core.smoothing.probs_to_intervals's own exclusive-end
+    # runs); ShuttleSet's raw label data uses an INCLUSIVE end instead --
+    # Task 19's sample-report generation is responsible for converting
+    # between the two, not this schema.
     end_frame: int
     winner: int | None = None
 

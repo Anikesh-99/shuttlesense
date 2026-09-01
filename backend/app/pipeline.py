@@ -237,25 +237,34 @@ def analyze(
     worker) are expected to translate this into a user-facing message.
     """
     pose_fn = pose_fn or extract_poses_onnx
-    kpts, scores, meta = pose_fn(video_path, target_fps)
-    fps = float(meta["fps_sampled"])
 
+    # Manifest + ONNX sessions loaded before pose_fn so a missing/broken
+    # models_dir fails fast rather than after the (potentially expensive,
+    # real-rtmlib) pose-extraction pass.
     manifest = json.loads((Path(models_dir) / "manifest.json").read_text())
     rally_threshold = manifest["rally"]["threshold"]  # RULED: never hardcode/re-derive
+    rally_sess = ort.InferenceSession(str(Path(models_dir) / "rally_gru.onnx"))
+    stroke_sess = ort.InferenceSession(str(Path(models_dir) / "stroke_tcn.onnx"))
+
+    kpts, scores, meta = pose_fn(video_path, target_fps)
+    fps = float(meta["fps_sampled"])
+    if kpts.shape[0] == 0:
+        # Hoisted ABOVE rally_frame_features on purpose: that function's
+        # per-player np.stack([...]) over an empty frame range raises its own
+        # (unfriendly) ValueError before ever reaching a T==0 check placed
+        # after it -- a 0-frame pose extraction must surface the same "no
+        # rallies detected" contract callers (the worker) already handle.
+        raise ValueError("no rallies detected")
 
     rf = rally_frame_features(kpts, scores)  # (T,4)
     T = rf.shape[0]
-    if T == 0:
-        raise ValueError("no rallies detected")
-
-    rally_sess = ort.InferenceSession(str(Path(models_dir) / "rally_gru.onnx"))
-    stroke_sess = ort.InferenceSession(str(Path(models_dir) / "stroke_tcn.onnx"))
 
     Xc, mask = _chunk_frames(rf, size=RALLY_CHUNK_SIZE)
     chunk_logits = rally_sess.run(None, {"x": Xc})[0]  # (n_chunks, size)
     chunk_probs = _sigmoid(chunk_logits)
     real = mask.reshape(-1) > 0
     probs = chunk_probs.reshape(-1)[real]  # (T,) -- pad-position outputs discarded
+    assert len(probs) == T, f"chunked rally probs length {len(probs)} != T={T}"
 
     intervals = probs_to_intervals(
         probs, threshold=rally_threshold, min_len=int(fps), merge_gap=int(fps / 2)
@@ -306,7 +315,14 @@ def analyze(
     tracks = {
         "fps": fps,
         "edges": COCO_EDGES,
-        "kpts": np.round(kpts, 1).tolist(),
-        "scores": np.round(scores, 2).tolist(),
+        # Round in float64, not float32: np.round on a float32 array keeps
+        # float32's nearest-representable-value error (e.g. 90.4 stored as
+        # 90.400001526...), which .tolist()'s float32->python-float widening
+        # then exposes verbatim (json.dumps prints "90.4000015258789" instead
+        # of "90.4", ~3x the payload size for no reason). Casting to float64
+        # BEFORE rounding lets np.round produce the float64 value closest to
+        # the intended decimal, which reprs/serializes cleanly.
+        "kpts": np.round(kpts.astype(np.float64), 1).tolist(),
+        "scores": np.round(scores.astype(np.float64), 2).tolist(),
     }
     return report, tracks

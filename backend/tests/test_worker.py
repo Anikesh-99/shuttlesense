@@ -109,6 +109,33 @@ def test_run_once_failure_records_raw_message_for_other_errors(tmp_path, monkeyp
     assert row["error"] == "onnxruntime blew up"
 
 
+def test_run_once_output_write_failure_marks_job_failed(tmp_path, monkeypatch):
+    # Fix round 1 item 5: report/tracks writes moved INSIDE the try -- a
+    # write failure (disk full, permissions, whatever) must land the job in
+    # "failed" with the real error, not leave it stuck in "processing"
+    # forever with no trace on disk.
+    settings = _settings(tmp_path)
+    jid = _queue_job(settings)
+    _write_fake_upload(settings, jid)
+
+    fake_report = MatchReport(fps=15.0, width=1280, height=720, n_frames=1)
+    monkeypatch.setattr(
+        worker, "analyze", lambda *a, **k: (fake_report, {"fps": 15.0})
+    )
+
+    def boom(path, obj):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(worker, "_atomic_write_json", boom)
+
+    assert worker.run_once(settings) is True
+
+    conn = db.connect(worker.db_path(settings))
+    row = db.get_job(conn, jid)
+    assert row["status"] == "failed"
+    assert "disk full" in row["error"]
+
+
 def test_run_forever_stops_looping_when_stop_flag_raised(tmp_path, monkeypatch):
     # run_forever loops forever by contract; drive it via a side-effecting
     # run_once stub and abort the loop with a sentinel exception after N calls
@@ -116,7 +143,12 @@ def test_run_forever_stops_looping_when_stop_flag_raised(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     calls = {"n": 0}
 
-    class _Stop(Exception):
+    class _Stop(BaseException):
+        # BaseException (not Exception): run_forever now deliberately catches
+        # `Exception` broadly (fix round 1 item 5, so one bad job can't kill
+        # the poll thread) -- a plain Exception-based sentinel here would be
+        # silently swallowed by that same broad handler instead of stopping
+        # the loop, hanging the test.
         pass
 
     def fake_run_once(s):
@@ -137,7 +169,8 @@ def test_run_forever_treats_operational_error_from_claim_next_as_transient(tmp_p
     settings = _settings(tmp_path)
     calls = {"n": 0}
 
-    class _Stop(Exception):
+    class _Stop(BaseException):
+        # see the sibling test above for why this is BaseException, not Exception.
         pass
 
     def flaky_run_once(s):
@@ -152,3 +185,29 @@ def test_run_forever_treats_operational_error_from_claim_next_as_transient(tmp_p
     with pytest.raises(_Stop):
         worker.run_forever(settings, poll_interval=0.0)
     assert calls["n"] == 2
+
+
+def test_run_forever_survives_unexpected_exception_from_run_once(tmp_path, monkeypatch, capsys):
+    # Fix round 1 item 5: run_once raising something other than
+    # sqlite3.OperationalError (a real bug, a disk-full error, whatever) must
+    # NOT kill the poll thread -- run_forever logs it (traceback.print_exc())
+    # and keeps polling.
+    settings = _settings(tmp_path)
+    calls = {"n": 0}
+
+    class _Stop(BaseException):
+        pass
+
+    def flaky_run_once(s):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("totally unexpected")
+        raise _Stop
+
+    monkeypatch.setattr(worker, "run_once", flaky_run_once)
+    monkeypatch.setattr(worker.time, "sleep", lambda _s: None)
+
+    with pytest.raises(_Stop):
+        worker.run_forever(settings, poll_interval=0.0)
+    assert calls["n"] == 2
+    assert "totally unexpected" in capsys.readouterr().err
