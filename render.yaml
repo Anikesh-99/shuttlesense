@@ -1,0 +1,15 @@
+
+services:
+  - type: web
+    name: shuttlesense
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: SHUTTLESENSE_MAX_UPLOAD_MB
+        value: "100"
+      - key: SHUTTLESENSE_MAX_DURATION_S
+        value: "95"
+    autoDeploy: true

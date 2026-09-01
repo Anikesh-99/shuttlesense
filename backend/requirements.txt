@@ -5,9 +5,19 @@ python-multipart>=0.0.9
 onnxruntime>=1.17
 numpy
 opencv-python-headless
+tqdm
 
 # rtmlib installed separately with --no-deps (GUI opencv conflict) — see
-# Dockerfile / Task 15. Its real transitive needs (numpy, opencv-python-headless,
-# onnxruntime) are already listed above for other reasons.
+# Dockerfile / Task 20. Its real transitive needs are numpy, onnxruntime,
+# opencv-contrib-python, opencv-python, tqdm (`pip show rtmlib` on a fresh
+# install, verified during Task 20's container build). numpy/onnxruntime are
+# already listed above for other reasons; opencv-python-headless (also
+# above) stands in for opencv-python/opencv-contrib-python (same `cv2`
+# import name, headless build, no GUI conflict). `tqdm` is NOT satisfied by
+# anything else above and rtmlib's own __init__.py imports it unconditionally
+# (via its object-detection submodule) even though this codebase only ever
+# uses `from rtmlib import Body` -- omitting it makes `import rtmlib` raise
+# `ModuleNotFoundError` in a --no-deps install, discovered empirically
+# during the Task 20 container build/run verification.
 
 httpx>=0.27  # test-only (FastAPI TestClient)

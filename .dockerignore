@@ -1,0 +1,70 @@
+# Build context exclusions for `docker build .` (repo root context).
+#
+# DEVIATION NOTE (documented per controller carry-over #3, see
+# task-20-report.md "Deviations"): carry-over #3 says the frontend SOURCE
+# should be excluded ("only dist/ is needed post-build"). Taken completely
+# literally that would break this Dockerfile's stage-1 UI build, which
+# builds frontend/dist FROM frontend source INSIDE the image (per the
+# task-20-brief.md skeleton) -- there is no pre-built frontend/dist checked
+# into this repo for the image to consume instead. Resolution: exclude the
+# frontend build/dependency ARTIFACTS that aren't needed as build input
+# (frontend/node_modules -- reinstalled fresh via `npm ci` in the ui stage;
+# any stray local frontend/dist) while keeping the actual frontend source
+# (src/, public/, index.html, package*.json, vite.config.js) that stage 1
+# requires to produce dist/. The *final* runtime image never touches
+# frontend source at all -- stage 2 only ever copies `/ui/dist` from stage
+# 1 via `COPY --from=ui`, so the literal "only dist/ is needed" claim is
+# true of the final image, just not of the build context.
+
+# --- VCS / tooling ---
+.git
+.github
+.dvc/cache
+.dvc/tmp
+.superpowers
+
+# --- Python virtualenvs / caches ---
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info/
+
+# --- Node ---
+**/node_modules
+frontend/dist
+
+# --- Training: not needed at serve time (Dockerfile only installs core/ +
+# backend/; the model weights it needs are already baked into
+# backend/models/, not re-derived from training/ at image build time) ---
+training/
+
+# --- Backend tests: not shipped in the runtime image ---
+backend/tests/
+
+# --- Root-level test suite / dev-only tooling ---
+tests/
+scripts/
+requirements-dev.txt
+pytest.ini
+
+# --- W&B local run artifacts ---
+wandb/
+
+# --- Docs / repo meta (not needed at runtime) ---
+docs/
+NEXT-STEPS.md
+CLAUDE.md
+*.md
+!README.md
+
+# --- OS cruft ---
+.DS_Store
+
+# NOTE: deliberately NOT excluded -- the runtime image needs these:
+#   backend/models/*.onnx     (DVC-tracked, present on disk in this worktree)
+#   backend/samples/**/video.mp4  (DVC-tracked, present on disk in this worktree)
+#   backend/app/, backend/__init__.py, backend/requirements.txt
+#   core/shuttlesense_core/, core/pyproject.toml
+#   frontend/src/, frontend/public/, frontend/index.html,
+#   frontend/package*.json, frontend/vite.config.js (needed by ui stage)
