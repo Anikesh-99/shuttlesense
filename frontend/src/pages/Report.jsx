@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Player from "../components/Player.jsx";
 import Momentum from "../components/Momentum.jsx";
 import RallyList from "../components/RallyList.jsx";
-import { fetchReport, fetchTracks, videoUrl } from "../api.js";
+import { fetchReport, fetchSampleMeta, fetchTracks, videoUrl } from "../api.js";
 import "./Report.css";
 
 /**
@@ -26,6 +26,7 @@ import "./Report.css";
 export default function Report({ kind, id }) {
   const [report, setReport] = useState(null);
   const [tracks, setTracks] = useState(null);
+  const [players, setPlayers] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const playheadRef = useRef({ time: 0, frame: 0 });
@@ -41,6 +42,7 @@ export default function Report({ kind, id }) {
     setError(null);
     setReport(null);
     setTracks(null);
+    setPlayers(null);
 
     Promise.all([fetchReport(kind, id), fetchTracks(kind, id)])
       .then(([r, t]) => {
@@ -55,6 +57,25 @@ export default function Report({ kind, id }) {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    // Fix round 1: `players` (real competitor names, for the score-race
+    // legend -- see Momentum.jsx's doc comment) is fetched SEPARATELY and
+    // is purely an enhancement: a "match" job never has one (no meta.json
+    // at all for uploads), and even for a sample, a missing/malformed
+    // `players` field on an older/hand-edited meta.json must never block
+    // or fail the report itself -- so this promise's rejection is swallowed
+    // here, not merged into the report/tracks Promise.all above.
+    if (kind === "sample") {
+      fetchSampleMeta(id)
+        .then((meta) => {
+          if (cancelled) return;
+          setPlayers(Array.isArray(meta?.players) ? meta.players : null);
+        })
+        .catch(() => {
+          // meta.json missing/malformed/endpoint error -- Momentum simply
+          // falls back to "Player 0"/"Player 1", same as a match job.
+        });
+    }
 
     return () => {
       cancelled = true;
@@ -121,7 +142,7 @@ export default function Report({ kind, id }) {
         onTimeRef={playheadRef}
       />
 
-      <Momentum report={report} onTimeRef={playheadRef} onSeek={handleSeek} />
+      <Momentum report={report} players={players} onTimeRef={playheadRef} onSeek={handleSeek} />
 
       <RallyList report={report} onTimeRef={playheadRef} onSeek={handleSeek} />
     </div>

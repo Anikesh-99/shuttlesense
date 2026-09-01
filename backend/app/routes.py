@@ -13,6 +13,13 @@ Endpoints (all under the `/api` prefix):
     GET  /api/matches/{job_id}/tracks       -> tracks.json (FileResponse)
     GET  /api/matches/{job_id}/video        -> uploaded video (FileResponse)
     GET  /api/samples                       -> [{"id", "title"}]
+    GET  /api/samples/{id}/meta             -> {"id", "title", "players"?}
+                                                (Fix round 1: "players" is
+                                                [name0, name1] real names,
+                                                present only when the sample
+                                                has ShuttleSet-labeled
+                                                ground truth -- see
+                                                `_load_sample_meta`)
     GET  /api/samples/{id}/report|tracks|video
 
 Read-path gate (binding, see plan controller carry-overs): report/tracks/
@@ -277,7 +284,24 @@ def _load_sample_meta(meta_path: Path, sample_id: str) -> dict | None:
     """Defensively parse a sample's `meta.json`. Returns `None` (with a
     warning, never an exception) for anything short of a well-formed
     `{"title": str, ...}` object -- untrusted-JSON boundary per module
-    docstring."""
+    docstring.
+
+    Optional `"players"` field (Task 19 Fix round 1): a `[name0, name1]`
+    pair of real competitor names, present only for samples built from
+    ShuttleSet-labeled ground truth (see `scripts/build_samples.py`). This
+    is DELIBERATELY a different identity axis than the on-screen skeleton
+    colors -- `name0`/`name1` here index the same match-scoped "eventual
+    match winner"/"loser" identity `report.rallies[].winner` (and therefore
+    the frontend's score-race chart) uses, per ShuttleSet's `player`
+    convention (`training/notes/shuttleset-format.md` (f)), NOT the
+    pipeline's per-frame court-side skeleton slot -- there is no reliable
+    correspondence between the two (empirically checked, see
+    task-19-report.md's "Fix round 1"), so the frontend must never present
+    `players[i]` as "the person drawn in player-color `i`"; it's only ever
+    used as the score-race series label. Included in the returned dict only
+    when well-formed (exactly 2 non-empty strings); malformed/absent
+    `"players"` degrades to simply omitting the key, never failing the
+    whole meta parse (title/id are the only required fields)."""
     try:
         raw = meta_path.read_text()
     except OSError as exc:
@@ -295,7 +319,21 @@ def _load_sample_meta(meta_path: Path, sample_id: str) -> dict | None:
     if not isinstance(title, str) or not title:
         warnings.warn(f"sample {sample_id!r}: meta.json missing a non-empty 'title'")
         return None
-    return {"id": sample_id, "title": title}
+    out = {"id": sample_id, "title": title}
+    players = meta.get("players")
+    if (
+        isinstance(players, list)
+        and len(players) == 2
+        and all(isinstance(p, str) and p for p in players)
+    ):
+        out["players"] = players
+    elif players is not None:
+        warnings.warn(
+            f"sample {sample_id!r}: meta.json has a malformed 'players' field "
+            "(expected [name0, name1], 2 non-empty strings) -- ignoring it, "
+            "not failing the whole meta"
+        )
+    return out
 
 
 @router.get("/samples")
@@ -344,6 +382,28 @@ def _confined_sample_dir(settings: Settings, sample_id: str) -> Path:
     if not confined or not candidate.is_dir():
         raise HTTPException(status_code=404, detail="unknown sample id")
     return candidate
+
+
+@router.get("/samples/{sample_id}/meta")
+def get_sample_meta(sample_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    """Task 19 Fix round 1: a per-sample meta fetch (`list_samples` above
+    only surfaces `{id, title}` for every sample at LIST time; the Report
+    page needs one sample's optional `players` field too, which isn't part
+    of that list contract). Deliberately returns the VALIDATED dict from
+    `_load_sample_meta` (id/title/optional players), not a raw
+    `FileResponse` of meta.json -- unlike report.json/tracks.json (files
+    THIS SYSTEM wrote and serves opaquely, per the module docstring's trust
+    boundary), meta.json gets the same defensive parse here it already gets
+    at list time, so a malformed/hand-edited meta.json degrades to 404
+    rather than handing the frontend garbage."""
+    d = _confined_sample_dir(settings, sample_id)
+    meta_path = d / "meta.json"
+    if not meta_path.is_file():
+        raise HTTPException(status_code=404, detail="meta not found")
+    parsed = _load_sample_meta(meta_path, sample_id)
+    if parsed is None:
+        raise HTTPException(status_code=404, detail="meta not found")
+    return parsed
 
 
 @router.get("/samples/{sample_id}/report")

@@ -58,6 +58,17 @@ export async function fetchTracks(kind, id) {
   return getJson(`${resourceBase(kind, id)}/tracks`);
 }
 
+/** Fix round 1: `{id, title, players?}` for a single SAMPLE (never called
+ * for a "match" job -- uploaded videos have no meta.json/ShuttleSet ground
+ * truth, so there's nothing to fetch). `players`, when present, is
+ * `[name0, name1]` real competitor names -- see `Momentum.jsx`'s doc
+ * comment for why this is a DIFFERENT identity axis than the on-screen
+ * skeleton colors and must only ever label the score-race series, never
+ * be presented as "who's drawn in which color". */
+export async function fetchSampleMeta(id) {
+  return getJson(`${API_BASE}/samples/${encodeURIComponent(id)}/meta`);
+}
+
 export function videoUrl(kind, id) {
   return `${resourceBase(kind, id)}/video`;
 }

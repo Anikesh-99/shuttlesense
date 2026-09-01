@@ -45,3 +45,38 @@ test("score-race mode also shows the head legend and omits the ribbon-only note"
   expect(screen.getByText("Player 1")).toBeInTheDocument();
   expect(screen.queryByText(/Score race unavailable/)).not.toBeInTheDocument();
 });
+
+// Fix round 1 regression tests: the score-race series identity (real
+// competitor names, from ShuttleSet ground truth) must never be presented
+// as "the same identity as the green/blue skeleton" -- see Momentum.jsx's
+// doc comment. Without a `players` prop, everything stays "Player 0"/
+// "Player 1" (behavior-identical to before this fix, e.g. every match-job
+// upload).
+
+test("score-race mode without a players prop still falls back to Player 0/Player 1", () => {
+  const { container } = render(<Momentum report={SCORE_RACE_REPORT} />);
+  expect(container.textContent).toContain("Player 0");
+  expect(container.textContent).toContain("Player 1");
+  expect(container.textContent).not.toMatch(/Chou|Antonsen/);
+});
+
+test("score-race mode with a players prop labels the chart with real names, head legend stays Player 0/1", () => {
+  const { container } = render(
+    <Momentum report={SCORE_RACE_REPORT} players={["Chou Tien Chen", "Anders Antonsen"]} />,
+  );
+  // Head legend is ALWAYS about the skeleton slot -- unaffected by `players`.
+  expect(screen.getByText("Player 0")).toBeInTheDocument();
+  expect(screen.getByText("Player 1")).toBeInTheDocument();
+  // Score-race end-labels use the real names, not "P0"/"P1".
+  expect(container.textContent).toContain("Chou Tien Chen");
+  expect(container.textContent).toContain("Anders Antonsen");
+  // The decoupling note is shown so the two identity axes read as distinct.
+  expect(screen.getByText(/Score race identity/)).toBeInTheDocument();
+});
+
+test("a malformed players prop (wrong length) falls back to Player 0/Player 1, not a crash", () => {
+  const { container } = render(<Momentum report={SCORE_RACE_REPORT} players={["OnlyOneName"]} />);
+  expect(container.textContent).toContain("Player 0");
+  expect(container.textContent).toContain("Player 1");
+  expect(screen.queryByText(/Score race identity/)).not.toBeInTheDocument();
+});

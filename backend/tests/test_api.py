@@ -217,13 +217,15 @@ def test_sample_listing_empty_dir(client):
     assert r.json() == []
 
 
-def _write_sample(samples_dir: Path, sample_id: str, title: str | None = "Demo Match", *, video=b"vid", report=None, tracks=None, write_meta=True):
+def _write_sample(samples_dir: Path, sample_id: str, title: str | None = "Demo Match", *, video=b"vid", report=None, tracks=None, write_meta=True, players=None):
     d = samples_dir / sample_id
     d.mkdir(parents=True, exist_ok=True)
     if write_meta:
         meta = {"id": sample_id}
         if title is not None:
             meta["title"] = title
+        if players is not None:
+            meta["players"] = players
         (d / "meta.json").write_text(json.dumps(meta))
     (d / "report.json").write_text(json.dumps(report if report is not None else {"fps": 15.0}))
     (d / "tracks.json").write_text(json.dumps(tracks if tracks is not None else {"edges": []}))
@@ -253,6 +255,19 @@ def test_sample_listing_and_fetch(client, tmp_dirs):
     vid = client.get("/api/samples/demo1/video")
     assert vid.status_code == 200
     assert vid.content == b"vid"
+
+
+def test_sample_listing_includes_players_when_present(client, tmp_dirs):
+    _write_sample(
+        Path(tmp_dirs.samples_dir), "demo1", "Demo One",
+        players=["Chou Tien Chen", "Anders Antonsen"],
+    )
+    _write_sample(Path(tmp_dirs.samples_dir), "demo2", "Demo Two")  # no players
+
+    r = client.get("/api/samples")
+    by_id = {s["id"]: s for s in r.json()}
+    assert by_id["demo1"]["players"] == ["Chou Tien Chen", "Anders Antonsen"]
+    assert "players" not in by_id["demo2"]
 
 
 def test_sample_missing_meta_json_skipped_not_crash(client, tmp_dirs, capfd):
@@ -293,6 +308,48 @@ def test_unknown_sample_404(client, tmp_dirs):
     assert client.get("/api/samples/nope/report").status_code == 404
     assert client.get("/api/samples/nope/tracks").status_code == 404
     assert client.get("/api/samples/nope/video").status_code == 404
+    assert client.get("/api/samples/nope/meta").status_code == 404
+
+
+# --- /samples/{id}/meta (Fix round 1) ---------------------------------------
+
+
+def test_sample_meta_endpoint_with_players(client, tmp_dirs):
+    _write_sample(
+        Path(tmp_dirs.samples_dir), "demo1", "Demo One",
+        players=["Chou Tien Chen", "Anders Antonsen"],
+    )
+    r = client.get("/api/samples/demo1/meta")
+    assert r.status_code == 200
+    assert r.json() == {
+        "id": "demo1",
+        "title": "Demo One",
+        "players": ["Chou Tien Chen", "Anders Antonsen"],
+    }
+
+
+def test_sample_meta_endpoint_without_players_omits_key(client, tmp_dirs):
+    _write_sample(Path(tmp_dirs.samples_dir), "demo1", "Demo One")
+    r = client.get("/api/samples/demo1/meta")
+    assert r.status_code == 200
+    assert r.json() == {"id": "demo1", "title": "Demo One"}
+
+
+def test_sample_meta_endpoint_malformed_players_ignored(client, tmp_dirs):
+    # A malformed "players" (wrong length, non-string entries, etc.) must
+    # not fail the whole meta fetch -- id/title still come through, the
+    # bad "players" key is just dropped (mirrors list_samples' defensive
+    # posture for meta.json as a whole).
+    _write_sample(Path(tmp_dirs.samples_dir), "demo1", "Demo One", players=["OnlyOneName"])
+    r = client.get("/api/samples/demo1/meta")
+    assert r.status_code == 200
+    assert r.json() == {"id": "demo1", "title": "Demo One"}
+
+
+def test_sample_meta_endpoint_missing_meta_json_404(client, tmp_dirs):
+    _write_sample(Path(tmp_dirs.samples_dir), "demo1", "Demo One", write_meta=False)
+    r = client.get("/api/samples/demo1/meta")
+    assert r.status_code == 404
 
 
 def test_sample_id_traversal_confined(client, tmp_dirs):

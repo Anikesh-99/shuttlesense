@@ -15,7 +15,12 @@ For each entry in `scripts/samples.yaml` this:
   3. Patches `winner` onto each detected `RallyInterval` by mapping it back
      to ShuttleSet's `labels.parquet` (see `patch_winners` for the frame-math
      and the RULED end-frame-convention conversion).
-  4. Writes `meta.json`/`report.json`/`tracks.json`, and a separate
+  4. Writes `meta.json` (including `players`: `[winner_name, loser_name]`
+     real competitor names looked up from `set/match.csv` -- Task 19 Fix
+     round 1, see `lookup_player_names`; this is the SCORE-RACE identity,
+     deliberately independent of the on-screen skeleton's per-frame
+     court-side slot, which has no reliable correspondence to it -- see
+     that function's docstring)/`report.json`/`tracks.json`, and a separate
      hosting-weight re-encode of the analysis clip as `video.mp4`
      (<=720p, ~2Mbps, +faststart), verifying via `ffprobe -count_frames`
      that the re-encode didn't drop/duplicate a single frame (a silent
@@ -52,6 +57,7 @@ from shuttlesense_core.schemas import MatchReport  # noqa: E402
 
 DEFAULT_SAMPLES_YAML = REPO_ROOT / "scripts" / "samples.yaml"
 DEFAULT_LABELS = REPO_ROOT / "training" / "data" / "processed" / "labels.parquet"
+DEFAULT_MATCH_CSV = REPO_ROOT / "training" / "data" / "raw" / "shuttleset" / "set" / "match.csv"
 DEFAULT_MODELS_DIR = REPO_ROOT / "backend" / "models"
 DEFAULT_OUT_DIR = REPO_ROOT / "backend" / "samples"
 
@@ -208,7 +214,41 @@ def patch_winners(
     return n_matched
 
 
-def build_sample(entry: dict, labels: pd.DataFrame, models_dir: Path, out_root: Path) -> dict:
+def lookup_player_names(match_csv: pd.DataFrame, match_id: str) -> list[str]:
+    """`[winner_name, loser_name]` real names for `match_id`, from
+    ShuttleSet's `set/match.csv` (`video` column == our `match_id`).
+
+    Task 19 Fix round 1: these are the display names for the SCORE-RACE
+    series, deliberately NOT a claim about which on-screen skeleton is
+    which -- `report.rallies[].winner` (what the score race plots) is
+    ShuttleSet's `player` id, which per `training/notes/shuttleset-
+    format.md` (f) is a MATCH-scoped identity where `0` is fixed to be
+    "the player who eventually wins the match" (`match.csv.winner`) and `1`
+    is fixed to "the player who loses" (`match.csv.loser`) -- confirmed
+    100% (44/44 matches) in that note. This is entirely independent of
+    `pipeline.analyze`'s per-frame court-side skeleton slot (which has no
+    persistent identity at all -- see `pipeline.py`'s docstring); an
+    empirical check (see task-19-report.md's "Fix round 1") found no
+    reliable correspondence between the two (68.6% and 5.7% agreement on
+    the two samples respectively -- i.e. not trustworthy either way), which
+    is why this function's output must only ever label the score race, not
+    the skeleton.
+
+    Names are `.title()`-cased for display (ShuttleSet's raw casing is
+    inconsistent, e.g. `"Anders ANTONSEN"`, `"CHOU Tien Chen"`). Raises
+    loudly if `match_id` has no `match.csv` row -- every `match_id` this
+    script is ever called with comes from `labels.parquet`, which IS
+    ShuttleSet, so a miss here means a real data mismatch, not a
+    legitimately-absent optional field.
+    """
+    rows = match_csv[match_csv["video"] == match_id]
+    if rows.empty:
+        raise RuntimeError(f"no match.csv row found for match_id={match_id!r} -- can't derive player names")
+    row = rows.iloc[0]
+    return [str(row["winner"]).title(), str(row["loser"]).title()]
+
+
+def build_sample(entry: dict, labels: pd.DataFrame, match_csv: pd.DataFrame, models_dir: Path, out_root: Path) -> dict:
     sample_id = entry["id"]
     source_video = REPO_ROOT / entry["source_video"]
     if not source_video.is_file():
@@ -264,9 +304,15 @@ def build_sample(entry: dict, labels: pd.DataFrame, models_dir: Path, out_root: 
     if n_matched == 0:
         raise RuntimeError(f"sample {sample_id!r}: zero rallies matched a labeled winner")
 
+    players = lookup_player_names(match_csv, entry["match_id"])
+    print(f"[build_samples] {sample_id}: players (score-race identity, from ShuttleSet) = {players}",
+          flush=True)
+
     (sample_dir / "report.json").write_text(json.dumps(report.to_dict(), indent=2))
     (sample_dir / "tracks.json").write_text(json.dumps(tracks))
-    (sample_dir / "meta.json").write_text(json.dumps({"id": sample_id, "title": entry["title"]}, indent=2))
+    (sample_dir / "meta.json").write_text(
+        json.dumps({"id": sample_id, "title": entry["title"], "players": players}, indent=2)
+    )
 
     final_video = sample_dir / "video.mp4"
     print(f"[build_samples] {sample_id}: re-encoding for hosting (<=720p, ~2Mbps, +faststart)...", flush=True)
@@ -294,6 +340,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--samples-yaml", type=Path, default=DEFAULT_SAMPLES_YAML)
     ap.add_argument("--labels", type=Path, default=DEFAULT_LABELS)
+    ap.add_argument("--match-csv", type=Path, default=DEFAULT_MATCH_CSV)
     ap.add_argument("--models-dir", type=Path, default=DEFAULT_MODELS_DIR)
     ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     args = ap.parse_args()
@@ -301,12 +348,13 @@ def main() -> None:
     spec = yaml.safe_load(args.samples_yaml.read_text())
     entries = spec["samples"]
     labels = pd.read_parquet(args.labels)
+    match_csv = pd.read_csv(args.match_csv)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
     for entry in entries:
-        results.append(build_sample(entry, labels, args.models_dir, args.out_dir))
+        results.append(build_sample(entry, labels, match_csv, args.models_dir, args.out_dir))
 
     print("\n[build_samples] summary:")
     for r in results:

@@ -48,8 +48,31 @@ const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"]; // must match Player.jsx / index.cs
  * are a no-op read with zero re-renders -- this avoids lifting
  * `currentFrame` into Report's React state (which would re-render the
  * whole report tree ~60x/sec) while still keeping the cursor live.
+ *
+ * Two identity axes, deliberately NOT the same (Task 19 Fix round 1):
+ * the head legend + control ribbon are always about the on-screen
+ * SKELETON -- `report.strokes[].player` is the pipeline's per-FRAME
+ * court-side slot (nearer/farther from camera), re-assigned every frame,
+ * with no persistent link to a real person (see `backend/app/pipeline.py`'s
+ * docstring). `report.rallies[].winner` (what `scoreRace` consumes), by
+ * contrast, comes from ShuttleSet's labeled ground truth for pre-baked
+ * samples, which is a MATCH-scoped real-person identity (`0` = the
+ * player who eventually wins the match, `1` = who loses -- see
+ * `training/notes/shuttleset-format.md` (f)). Empirically checked
+ * (task-19-report.md, "Fix round 1"): there is NO reliable correspondence
+ * between the two -- one sample agreed only 68.6% of the time, the other
+ * only 5.7% (i.e. essentially inverted). So the score-race series is
+ * labeled with the real competitor NAMES (`players` prop, `[name0,
+ * name1]`, indexed the same way as `winner`) when available, NEVER with
+ * "Player 0"/"Player 1" (which would visually imply -- wrongly -- "the
+ * same identity as the green/blue skeleton"). The head legend and ribbon
+ * stay "Player 0"/"Player 1" always, since those genuinely are about the
+ * skeleton slot. `players` is `undefined`/`null`/malformed for every
+ * match-job upload (no ground truth) and for any older/hand-edited sample
+ * missing it -- the score race then falls back to "Player 0"/"Player 1"
+ * text, same as before this fix (behavior-identical for uploads).
  */
-export default function Momentum({ report, onTimeRef, onSeek }) {
+export default function Momentum({ report, players, onTimeRef, onSeek }) {
   const svgRef = useRef(null);
   const [cursorFrame, setCursorFrame] = useState(0);
   const [hover, setHover] = useState(null); // {frame, x} | null
@@ -58,6 +81,14 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
   const nFrames = report?.n_frames || 0;
   const rallies = report?.rallies || [];
   const strokes = report?.strokes || [];
+
+  const hasPlayers =
+    Array.isArray(players) &&
+    players.length === 2 &&
+    players.every((p) => typeof p === "string" && p);
+  // Score-race-only label -- NEVER used for the head legend or ribbon
+  // (those stay "Player 0"/"Player 1", the skeleton-slot identity).
+  const raceName = (i) => (hasPlayers ? players[i] : `Player ${i}`);
 
   const race = useMemo(() => scoreRace(rallies), [rallies]);
   const ribbon = useMemo(() => controlRibbon(strokes, nFrames, fps), [strokes, nFrames, fps]);
@@ -170,9 +201,9 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
         </div>
       </div>
 
-      {/* Fix round 1: ribbon-only mode (every real sample/upload today,
-          since winner assignment isn't implemented anywhere in the
-          pipeline yet -- see Task 18 report) must NOT ship with an
+      {/* Fix round 1: ribbon-only mode (every match-job upload today, and
+          any sample where a detected rally couldn't be confidently mapped
+          to a labeled winner -- see Task 19 report) must NOT ship with an
           unlabeled green/blue swatch strip. The identity key above
           already covers this (it's no longer gated on `displaySeries`),
           but repeat it inline, next to the "attacking control" label
@@ -189,6 +220,19 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
           <span className="ss-momentum__inline-key">
             <i style={{ background: PLAYER_COLOR[1] }} /> P1
           </span>
+        </p>
+      )}
+
+      {/* Task 19 Fix round 1: when the score race IS showing real
+          competitor names, say so explicitly, right next to it -- the
+          reader must never assume "the line named {raceName(0)} is the
+          same identity as the green skeleton above" (see this
+          component's doc comment for why that's not a safe assumption). */}
+      {displaySeries && hasPlayers && (
+        <p className="ss-momentum__note">
+          Score race identity: {players[0]} vs {players[1]} (ShuttleSet ground truth) &mdash;
+          a separate axis from the skeleton colors above, which reflect on-court side per frame
+          only.
         </p>
       )}
 
@@ -219,14 +263,18 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
             <polyline points={pathFor("p0")} className="ss-momentum__line ss-momentum__line--p0" />
             <polyline points={pathFor("p1")} className="ss-momentum__line ss-momentum__line--p1" />
 
-            {/* Direct end-labels: identity never by color alone. */}
+            {/* Direct end-labels: identity never by color alone. Fix round
+                1: labeled with the real competitor name when available
+                (`raceName`), NEVER "P0"/"P1" in that case -- see this
+                component's doc comment for why "P0"/"P1" here would
+                falsely imply the skeleton-slot identity. */}
             <text
               x={xForFrame(displaySeries[displaySeries.length - 1].frame) - 4}
               y={yForScore(displaySeries[displaySeries.length - 1].p0) - 6}
               className="ss-momentum__endlabel ss-momentum__endlabel--p0"
               textAnchor="end"
             >
-              P0 &middot; {displaySeries[displaySeries.length - 1].p0}
+              {raceName(0)} &middot; {displaySeries[displaySeries.length - 1].p0}
             </text>
             <text
               x={xForFrame(displaySeries[displaySeries.length - 1].frame) - 4}
@@ -234,7 +282,7 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
               className="ss-momentum__endlabel ss-momentum__endlabel--p1"
               textAnchor="end"
             >
-              P1 &middot; {displaySeries[displaySeries.length - 1].p1}
+              {raceName(1)} &middot; {displaySeries[displaySeries.length - 1].p1}
             </text>
           </g>
         )}
@@ -294,12 +342,15 @@ export default function Momentum({ report, onTimeRef, onSeek }) {
             <div className="ss-momentum__tooltip-scores">
               {/* Fix round 1: text stays in ink tokens, never the series
                   color (the swatch dot carries identity instead) -- see
-                  `.ss-momentum__tooltip-scores` in Momentum.css. */}
+                  `.ss-momentum__tooltip-scores` in Momentum.css. Labeled
+                  with the real competitor name when available (`raceName`),
+                  never "P0"/"P1" in that case -- same rationale as the
+                  end-labels above. */}
               <span>
-                <i style={{ background: PLAYER_COLOR[0] }} /> P0 {hoverScore.p0}
+                <i style={{ background: PLAYER_COLOR[0] }} /> {raceName(0)} {hoverScore.p0}
               </span>
               <span>
-                <i style={{ background: PLAYER_COLOR[1] }} /> P1 {hoverScore.p1}
+                <i style={{ background: PLAYER_COLOR[1] }} /> {raceName(1)} {hoverScore.p1}
               </span>
             </div>
           )}
