@@ -71,12 +71,47 @@ test("score-race mode with a players prop labels the chart with real names, head
   expect(container.textContent).toContain("Chou Tien Chen");
   expect(container.textContent).toContain("Anders Antonsen");
   // The decoupling note is shown so the two identity axes read as distinct.
-  expect(screen.getByText(/Score race identity/)).toBeInTheDocument();
+  expect(screen.getByText(/Score-race colors are distinct from the court-side skeleton colors/))
+    .toBeInTheDocument();
 });
 
 test("a malformed players prop (wrong length) falls back to Player 0/Player 1, not a crash", () => {
   const { container } = render(<Momentum report={SCORE_RACE_REPORT} players={["OnlyOneName"]} />);
   expect(container.textContent).toContain("Player 0");
   expect(container.textContent).toContain("Player 1");
-  expect(screen.queryByText(/Score race identity/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Score-race colors are distinct/)).not.toBeInTheDocument();
+});
+
+// Fix round 2 regression tests: a real competitor NAME on a
+// --player-0/--player-1-colored line made the wrong "this line is that
+// skeleton" implication MORE confident, not less -- the score-race series
+// must render in a palette that's neither --player-0 nor --player-1, no
+// matter whether `players` names are shown or it's still "Player 0"/
+// "Player 1" text.
+
+test("score-race polylines never use the skeleton palette classes, in either identity mode", () => {
+  const withoutNames = render(<Momentum report={SCORE_RACE_REPORT} />);
+  const withNames = render(
+    <Momentum report={SCORE_RACE_REPORT} players={["Chou Tien Chen", "Anders Antonsen"]} />,
+  );
+  for (const { container } of [withoutNames, withNames]) {
+    // The old --player-0/--player-1-backed classes must never appear on
+    // the score-race polylines.
+    expect(container.querySelectorAll(".ss-momentum__line--p0, .ss-momentum__line--p1")).toHaveLength(0);
+    // The de-paletted neutral-ink classes are what's actually there instead.
+    const race0 = container.querySelectorAll("polyline.ss-momentum__race0");
+    const race1 = container.querySelectorAll("polyline.ss-momentum__race1");
+    expect(race0).toHaveLength(1);
+    expect(race1).toHaveLength(1);
+  }
+});
+
+test("the head legend's swatches still use the player palette (inline style), unaffected by the score-race de-paletting", () => {
+  const { container } = render(
+    <Momentum report={SCORE_RACE_REPORT} players={["Chou Tien Chen", "Anders Antonsen"]} />,
+  );
+  const legendDots = container.querySelectorAll(".ss-momentum__legend-item i");
+  expect(legendDots).toHaveLength(2);
+  expect(legendDots[0].style.background).toBe("rgb(99, 213, 160)"); // --player-0 #63d5a0
+  expect(legendDots[1].style.background).toBe("rgb(111, 168, 255)"); // --player-1 #6fa8ff
 });

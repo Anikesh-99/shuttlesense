@@ -16,6 +16,13 @@ const VB_H = CHART_H + RIBBON_GAP + RIBBON_H;
 const PAD_X = 4;
 
 const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"]; // must match Player.jsx / index.css --player-0/1
+// Fix round 2: the score-race series is DELIBERATELY de-paletted off
+// --player-0/--player-1 -- see this component's doc comment. Series 0 is a
+// solid bright-ink line, series 1 a dashed dimmer-ink line (CSS classes
+// below); this array is only the tooltip's small identity dot per series
+// (a solid bright-ink dot vs a muted-ink dot with a light ring), echoing
+// the same "two redundant cues" idea as the line (see Momentum.css).
+const RACE_CLASS = ["ss-momentum__race0", "ss-momentum__race1"];
 
 /**
  * Momentum: the report-level "what happened" chart. Two stacked layers on
@@ -49,7 +56,7 @@ const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"]; // must match Player.jsx / index.cs
  * `currentFrame` into Report's React state (which would re-render the
  * whole report tree ~60x/sec) while still keeping the cursor live.
  *
- * Two identity axes, deliberately NOT the same (Task 19 Fix round 1):
+ * Two identity axes, deliberately NOT the same (Task 19 Fix rounds 1-2):
  * the head legend + control ribbon are always about the on-screen
  * SKELETON -- `report.strokes[].player` is the pipeline's per-FRAME
  * court-side slot (nearer/farther from camera), re-assigned every frame,
@@ -71,6 +78,17 @@ const PLAYER_COLOR = ["#63d5a0", "#6fa8ff"]; // must match Player.jsx / index.cs
  * match-job upload (no ground truth) and for any older/hand-edited sample
  * missing it -- the score race then falls back to "Player 0"/"Player 1"
  * text, same as before this fix (behavior-identical for uploads).
+ *
+ * Fix round 2: a real NAME on a --player-0/--player-1-colored line made
+ * the false "green line = Chou Tien Chen" implication MORE confident, not
+ * less -- a caption can't undo what the color already told the eye. So the
+ * score-race polylines/end-labels/tooltip dots are de-paletted off
+ * --player-0/--player-1 ENTIRELY: they render in a neutral ink pair
+ * (`--text-0` solid, `--text-1` dashed -- see `.ss-momentum__race0/1` in
+ * Momentum.css), distinguishable from each other by BOTH stroke pattern
+ * and luminance (works independent of color vision), and cannot be
+ * mistaken for either skeleton color. The head legend/ribbon keep
+ * --player-0/--player-1 unchanged -- that palette is correct there.
  */
 export default function Momentum({ report, players, onTimeRef, onSeek }) {
   const svgRef = useRef(null);
@@ -223,16 +241,19 @@ export default function Momentum({ report, players, onTimeRef, onSeek }) {
         </p>
       )}
 
-      {/* Task 19 Fix round 1: when the score race IS showing real
+      {/* Task 19 Fix round 1/2: when the score race IS showing real
           competitor names, say so explicitly, right next to it -- the
           reader must never assume "the line named {raceName(0)} is the
           same identity as the green skeleton above" (see this
-          component's doc comment for why that's not a safe assumption). */}
+          component's doc comment for why that's not a safe assumption).
+          Fix round 2: the colors themselves no longer overlap either
+          (score race is a neutral ink pair, never --player-0/1), so this
+          note now says so explicitly too, not just "separate axis". */}
       {displaySeries && hasPlayers && (
         <p className="ss-momentum__note">
-          Score race identity: {players[0]} vs {players[1]} (ShuttleSet ground truth) &mdash;
-          a separate axis from the skeleton colors above, which reflect on-court side per frame
-          only.
+          Score race: {players[0]} vs {players[1]} (ShuttleSet ground truth). Score-race colors
+          are distinct from the court-side skeleton colors above; the two are unrelated identity
+          axes.
         </p>
       )}
 
@@ -260,8 +281,11 @@ export default function Momentum({ report, players, onTimeRef, onSeek }) {
               />
             ))}
 
-            <polyline points={pathFor("p0")} className="ss-momentum__line ss-momentum__line--p0" />
-            <polyline points={pathFor("p1")} className="ss-momentum__line ss-momentum__line--p1" />
+            {/* Fix round 2: `.ss-momentum__race0`/`race1` (a neutral ink
+                pair, solid vs dashed), NEVER `.ss-momentum__line--p0/p1`
+                (--player-0/--player-1) -- see the component doc comment. */}
+            <polyline points={pathFor("p0")} className="ss-momentum__line ss-momentum__race0" />
+            <polyline points={pathFor("p1")} className="ss-momentum__line ss-momentum__race1" />
 
             {/* Direct end-labels: identity never by color alone. Fix round
                 1: labeled with the real competitor name when available
@@ -271,7 +295,7 @@ export default function Momentum({ report, players, onTimeRef, onSeek }) {
             <text
               x={xForFrame(displaySeries[displaySeries.length - 1].frame) - 4}
               y={yForScore(displaySeries[displaySeries.length - 1].p0) - 6}
-              className="ss-momentum__endlabel ss-momentum__endlabel--p0"
+              className="ss-momentum__endlabel"
               textAnchor="end"
             >
               {raceName(0)} &middot; {displaySeries[displaySeries.length - 1].p0}
@@ -279,7 +303,7 @@ export default function Momentum({ report, players, onTimeRef, onSeek }) {
             <text
               x={xForFrame(displaySeries[displaySeries.length - 1].frame) - 4}
               y={yForScore(displaySeries[displaySeries.length - 1].p1) + 14}
-              className="ss-momentum__endlabel ss-momentum__endlabel--p1"
+              className="ss-momentum__endlabel"
               textAnchor="end"
             >
               {raceName(1)} &middot; {displaySeries[displaySeries.length - 1].p1}
@@ -345,12 +369,14 @@ export default function Momentum({ report, players, onTimeRef, onSeek }) {
                   `.ss-momentum__tooltip-scores` in Momentum.css. Labeled
                   with the real competitor name when available (`raceName`),
                   never "P0"/"P1" in that case -- same rationale as the
-                  end-labels above. */}
+                  end-labels above. Fix round 2: the dot itself is now
+                  `RACE_CLASS` (neutral ink, solid-fill vs ringed-muted-fill),
+                  NEVER `PLAYER_COLOR` -- see the component doc comment. */}
               <span>
-                <i style={{ background: PLAYER_COLOR[0] }} /> {raceName(0)} {hoverScore.p0}
+                <i className={RACE_CLASS[0]} /> {raceName(0)} {hoverScore.p0}
               </span>
               <span>
-                <i style={{ background: PLAYER_COLOR[1] }} /> {raceName(1)} {hoverScore.p1}
+                <i className={RACE_CLASS[1]} /> {raceName(1)} {hoverScore.p1}
               </span>
             </div>
           )}

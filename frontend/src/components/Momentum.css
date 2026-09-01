@@ -82,7 +82,18 @@
   stroke-width: 1;
 }
 
-/* Line marks: 2px, one hue per player identity -- never a rank/color swap. */
+/* Line marks: 2px. Fix round 2: the score-race series is DE-PALETTED off
+   --player-0/--player-1 entirely (a name on a player-colored line made the
+   wrong "this line is that skeleton" implication MORE confident, not
+   less -- see Momentum.jsx's doc comment). `.ss-momentum__race0`/`race1`
+   are a neutral ink pair, distinguished from EACH OTHER by both stroke
+   pattern (solid vs dashed) and luminance (bright vs muted ink) -- two
+   redundant channels, neither relying on hue, so it stays distinguishable
+   under any color-vision deficiency. `Momentum.jsx` reuses these same two
+   class names for the tooltip's identity dot (`.ss-momentum__tooltip-
+   scores i.ss-momentum__race0/1` below give that element its own
+   `background`/`border` rules, scoped by the extra ancestor selector so
+   they don't collide with the `stroke` rules here). */
 .ss-momentum__line {
   fill: none;
   stroke-width: 2;
@@ -90,12 +101,13 @@
   stroke-linecap: round;
 }
 
-.ss-momentum__line--p0 {
-  stroke: var(--player-0);
+.ss-momentum__race0 {
+  stroke: var(--text-0);
 }
 
-.ss-momentum__line--p1 {
-  stroke: var(--player-1);
+.ss-momentum__race1 {
+  stroke: var(--text-1);
+  stroke-dasharray: 6 4;
 }
 
 /* Direct labels: text stays in ink tokens, never rendered in the series
@@ -165,4 +177,18 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+}
+
+/* Fix round 2: tooltip identity dots reuse `.ss-momentum__race0`/`race1`
+   (see the shared-class note above `.ss-momentum__race0` near the line
+   marks) -- solid text-0 fill for series 0, a lighter-ring-around-muted-fill
+   for series 1, so the pair reads as distinct even at 7px without touching
+   --player-0/--player-1. */
+.ss-momentum__tooltip-scores i.ss-momentum__race0 {
+  background: var(--text-0);
+}
+
+.ss-momentum__tooltip-scores i.ss-momentum__race1 {
+  background: var(--text-1);
+  border: 1px solid var(--text-0);
 }
