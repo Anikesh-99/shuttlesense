@@ -1,0 +1,63 @@
+# Task 19: pre-analyzed sample matches for the zero-action demo.
+#
+# Source-selection ruling (binding, task-19 controller): samples are drawn
+# ONLY from splits.json's `test` set (never train/val) -- the demo must show
+# the models generalizing to matches they never trained on. Of the 3 test
+# matches with a downloaded clip in training/data/raw/videos/, these 2 have
+# the most labeled rallies actually covered by the downloaded (trimmed)
+# clip's time window (see each entry's `match_id` cross-referenced against
+# training/data/processed/labels.parquet + the clip's sidecar .json
+# start_offset_s) -- i.e. the cleanest/most rally-dense footage of the 3.
+# The third test-split clip
+# (Viktor_Axelsen_Jonatan_Christie_YONEX_Thailand_Open_2021_QuarterFinals)
+# was passed over for this reason (only 4 labeled rallies fall inside its
+# downloaded window, all but one sharing the same winner -- a less
+# interesting demo than the two picked below).
+#
+# `clip_start_s`/`clip_duration_s` are offsets IN TO THE DOWNLOADED CLIP
+# (training/data/raw/videos/<file>, itself already a trim of the full
+# YouTube match per that file's .json sidecar's `start_offset_s`).
+# `build_samples.py` adds the sidecar's `start_offset_s` to `clip_start_s`
+# to recover each detected rally's position in FULL-MATCH frame numbers,
+# which is what `labels.parquet`'s `rally_start_frame`/`rally_end_frame`
+# are indexed against -- see that script's `full_match_start_frame` /
+# `patch_winners`.
+#
+# WINDOW-SIZING NOTE (empirical, from interactive probing during Task 19 --
+# see task-19-report.md's "winner-mapping approach" section for the full
+# writeup): a TIGHT hand-picked window bracketing just 4 labeled rallies
+# (the original plan) made RallyGRU either merge everything into one giant
+# blob or detect nothing at all -- apparently the model needs more
+# surrounding real match context (a longer run of alternating play/dead-time)
+# to threshold cleanly. Both windows below were widened to cover most of
+# each downloaded clip's labeled-rally-dense region instead, which the
+# model segments into 8 well-separated rallies each (verified by an
+# interactive probe run before finalizing, not just assumed) -- at some
+# hosting-weight cost (~3-5 min video each vs. the brief's 60-90s guidance;
+# a deliberate, documented trade-off in favor of a working score-race demo
+# over strict duration).
+samples:
+  - id: chou-tien-chen-vs-antonsen-fuzhou-2019
+    title: "Chou Tien Chen vs Anders Antonsen -- Fuzhou Open 2019 Semifinal"
+    source_video: training/data/raw/videos/CHOU_Tien_Chen_Anders_ANTONSEN_Fuzhou_Open_2019_Semi-finals.mp4
+    match_id: CHOU_Tien_Chen_Anders_ANTONSEN_Fuzhou_Open_2019_Semi-finals
+    # Covers labeled rallies 1002-1009 (full-match frames ~11290-17768).
+    # RallyGRU detects 8 rallies here, EVERY one confidently overlaps a
+    # labeled rally -> full score-race coverage, no null winners.
+    clip_start_s: 37.6
+    clip_duration_s: 294.76
+  - id: vittinghus-vs-antonsen-thailand-2021
+    title: "Hans-Kristian Vittinghus vs Anders Antonsen -- Thailand Open 2021 Semifinal"
+    source_video: training/data/raw/videos/Hans-Kristian_Solberg_Vittinghus_Anders_Antonsen_TOYOTA_THAILAND_OPEN_2021_SemiFinals.mp4
+    match_id: Hans-Kristian_Solberg_Vittinghus_Anders_Antonsen_TOYOTA_THAILAND_OPEN_2021_SemiFinals
+    # Covers labeled rallies 1001-1006 (full-match frames ~11947-16951).
+    # RallyGRU detects 8 rallies here; 6 confidently overlap a labeled
+    # rally, 2 are false-positive blips in real dead-time gaps between
+    # labeled rallies and are left winner=null (ruling: "some winners
+    # better than none") -- this sample's Momentum chart falls back to
+    # ribbon-only rather than the score race. Kept anyway: it's still a
+    # rich, honest report (8 rallies, most with winners) from a genuine
+    # held-out test match, and the OTHER sample already demonstrates the
+    # full score-race UI.
+    clip_start_s: 2.0
+    clip_duration_s: 176.0

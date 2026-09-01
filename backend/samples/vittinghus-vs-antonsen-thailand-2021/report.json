@@ -1,0 +1,470 @@
+{
+  "fps": 15.0,
+  "width": 1280,
+  "height": 720,
+  "n_frames": 2640,
+  "rallies": [
+    {
+      "start_frame": 10,
+      "end_frame": 54,
+      "winner": 0
+    },
+    {
+      "start_frame": 287,
+      "end_frame": 496,
+      "winner": 0
+    },
+    {
+      "start_frame": 515,
+      "end_frame": 726,
+      "winner": 0
+    },
+    {
+      "start_frame": 893,
+      "end_frame": 937,
+      "winner": null
+    },
+    {
+      "start_frame": 1256,
+      "end_frame": 1348,
+      "winner": 1
+    },
+    {
+      "start_frame": 1710,
+      "end_frame": 1781,
+      "winner": 1
+    },
+    {
+      "start_frame": 1881,
+      "end_frame": 1961,
+      "winner": null
+    },
+    {
+      "start_frame": 2223,
+      "end_frame": 2412,
+      "winner": 0
+    }
+  ],
+  "strokes": [
+    {
+      "frame": 14,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7151241302490234
+    },
+    {
+      "frame": 22,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7311062216758728
+    },
+    {
+      "frame": 38,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.5535204410552979
+    },
+    {
+      "frame": 287,
+      "player": 1,
+      "stroke": "serve",
+      "confidence": 0.505070686340332
+    },
+    {
+      "frame": 323,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.439621239900589
+    },
+    {
+      "frame": 331,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.6126664876937866
+    },
+    {
+      "frame": 339,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.6375845074653625
+    },
+    {
+      "frame": 347,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.4588823616504669
+    },
+    {
+      "frame": 359,
+      "player": 1,
+      "stroke": "net",
+      "confidence": 0.41499751806259155
+    },
+    {
+      "frame": 367,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.545782208442688
+    },
+    {
+      "frame": 375,
+      "player": 0,
+      "stroke": "lift",
+      "confidence": 0.8115593791007996
+    },
+    {
+      "frame": 387,
+      "player": 0,
+      "stroke": "drive",
+      "confidence": 0.5419609546661377
+    },
+    {
+      "frame": 407,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.8859883546829224
+    },
+    {
+      "frame": 419,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.8417816758155823
+    },
+    {
+      "frame": 427,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.5909290909767151
+    },
+    {
+      "frame": 435,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.37314730882644653
+    },
+    {
+      "frame": 443,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.6713576912879944
+    },
+    {
+      "frame": 451,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.44343453645706177
+    },
+    {
+      "frame": 459,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.514617919921875
+    },
+    {
+      "frame": 467,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.4753812551498413
+    },
+    {
+      "frame": 475,
+      "player": 0,
+      "stroke": "drive",
+      "confidence": 0.3687528073787689
+    },
+    {
+      "frame": 495,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.6478990316390991
+    },
+    {
+      "frame": 527,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7162637114524841
+    },
+    {
+      "frame": 535,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7713056802749634
+    },
+    {
+      "frame": 547,
+      "player": 0,
+      "stroke": "clear",
+      "confidence": 0.6742025017738342
+    },
+    {
+      "frame": 567,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.6236981749534607
+    },
+    {
+      "frame": 575,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.7508577108383179
+    },
+    {
+      "frame": 603,
+      "player": 0,
+      "stroke": "smash",
+      "confidence": 0.6134535670280457
+    },
+    {
+      "frame": 639,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.4821627140045166
+    },
+    {
+      "frame": 655,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.5469321012496948
+    },
+    {
+      "frame": 663,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.3969910442829132
+    },
+    {
+      "frame": 671,
+      "player": 1,
+      "stroke": "net",
+      "confidence": 0.4571530818939209
+    },
+    {
+      "frame": 679,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.5371282696723938
+    },
+    {
+      "frame": 695,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.3761928379535675
+    },
+    {
+      "frame": 703,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.2805822193622589
+    },
+    {
+      "frame": 715,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.3183608949184418
+    },
+    {
+      "frame": 893,
+      "player": 1,
+      "stroke": "clear",
+      "confidence": 0.41782090067863464
+    },
+    {
+      "frame": 901,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.5722165107727051
+    },
+    {
+      "frame": 909,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.975305438041687
+    },
+    {
+      "frame": 917,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.8627325892448425
+    },
+    {
+      "frame": 929,
+      "player": 1,
+      "stroke": "net",
+      "confidence": 0.6181268692016602
+    },
+    {
+      "frame": 1256,
+      "player": 0,
+      "stroke": "drive",
+      "confidence": 0.45595890283584595
+    },
+    {
+      "frame": 1280,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7981471419334412
+    },
+    {
+      "frame": 1288,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.6604615449905396
+    },
+    {
+      "frame": 1296,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.4470805525779724
+    },
+    {
+      "frame": 1308,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.7546177506446838
+    },
+    {
+      "frame": 1316,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.563161313533783
+    },
+    {
+      "frame": 1328,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.30559679865837097
+    },
+    {
+      "frame": 1344,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.589483916759491
+    },
+    {
+      "frame": 1710,
+      "player": 0,
+      "stroke": "serve",
+      "confidence": 0.757790207862854
+    },
+    {
+      "frame": 1722,
+      "player": 1,
+      "stroke": "drive",
+      "confidence": 0.3850823640823364
+    },
+    {
+      "frame": 1738,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.6636523604393005
+    },
+    {
+      "frame": 1750,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.6420698761940002
+    },
+    {
+      "frame": 1758,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.35659006237983704
+    },
+    {
+      "frame": 1881,
+      "player": 1,
+      "stroke": "clear",
+      "confidence": 0.37267643213272095
+    },
+    {
+      "frame": 1937,
+      "player": 1,
+      "stroke": "serve",
+      "confidence": 0.7561352252960205
+    },
+    {
+      "frame": 1945,
+      "player": 1,
+      "stroke": "serve",
+      "confidence": 0.8507691621780396
+    },
+    {
+      "frame": 1957,
+      "player": 1,
+      "stroke": "serve",
+      "confidence": 0.8426007032394409
+    },
+    {
+      "frame": 2291,
+      "player": 0,
+      "stroke": "serve",
+      "confidence": 0.6828066110610962
+    },
+    {
+      "frame": 2299,
+      "player": 0,
+      "stroke": "serve",
+      "confidence": 0.6544740796089172
+    },
+    {
+      "frame": 2315,
+      "player": 0,
+      "stroke": "serve",
+      "confidence": 0.7765061259269714
+    },
+    {
+      "frame": 2331,
+      "player": 1,
+      "stroke": "smash",
+      "confidence": 0.9069575071334839
+    },
+    {
+      "frame": 2339,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.8620702028274536
+    },
+    {
+      "frame": 2347,
+      "player": 1,
+      "stroke": "drive",
+      "confidence": 0.7156416177749634
+    },
+    {
+      "frame": 2359,
+      "player": 0,
+      "stroke": "drop",
+      "confidence": 0.45263370871543884
+    },
+    {
+      "frame": 2379,
+      "player": 0,
+      "stroke": "drive",
+      "confidence": 0.34846264123916626
+    },
+    {
+      "frame": 2387,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.49317842721939087
+    },
+    {
+      "frame": 2395,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.4637294411659241
+    },
+    {
+      "frame": 2403,
+      "player": 0,
+      "stroke": "net",
+      "confidence": 0.7933042049407959
+    },
+    {
+      "frame": 2411,
+      "player": 1,
+      "stroke": "lift",
+      "confidence": 0.6885412335395813
+    }
+  ]
+}
