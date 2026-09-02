@@ -17,3 +17,6 @@ wandb/
 # record is Task 13's W&B artifacts + backend/models/manifest.json, not this directory
 # -- DVC-tracking checkpoints here would duplicate that registry role.
 training/checkpoints/
+
+# harness worktrees / scratch
+.claude/

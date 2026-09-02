@@ -6,6 +6,14 @@ serve), a synced skeleton overlay on the video, a momentum/score-race chart, and
 rally list -- all computed by a from-scratch pose -> feature -> classifier pipeline, not a
 wrapper around someone else's API.
 
+![ShuttleSense analyzing a rally: skeleton overlays tracking both players, then the momentum score-race and rally explorer](docs/media/shuttlesense-demo.gif)
+
+_A pre-baked sample match (Chou Tien Chen vs Antonsen, Fuzhou 2019): the trained pose→stroke
+pipeline overlays both players' skeletons on the broadcast footage, and the report derives a
+rally-by-rally breakdown, a momentum score-race, and a scrubbable rally explorer. Player skeletons
+are colored by court side; the score-race is labeled by name — the two are deliberately kept as
+separate identity axes (see "Model metrics" below for why)._
+
 **Live demo:** _add the Render URL here once deployed (see "Deploying" below)._
 
 ## What it actually does, in one sentence
