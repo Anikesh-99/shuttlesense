@@ -14,7 +14,9 @@ rally-by-rally breakdown, a momentum score-race, and a scrubbable rally explorer
 are colored by court side; the score-race is labeled by name — the two are deliberately kept as
 separate identity axes (see "Model metrics" below for why)._
 
-**Live demo:** _add the Render URL here once deployed (see "Deploying" below)._
+**Live demo:** **https://shuttlesense.onrender.com** — opens straight into a pre-analyzed sample
+match, no upload needed. (Free-tier Render cold-starts after ~15 min idle, so the first load can
+take ~40–50s.)
 
 ## What it actually does, in one sentence
 
