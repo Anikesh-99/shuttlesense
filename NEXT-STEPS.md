@@ -54,16 +54,12 @@ account / Render account and can't be automated here:
    zero-action sample redirect, and at least one sample report loading with its video. Add the
    live URL to `README.md`'s "Live demo" line at the top once confirmed.
 
-**Model/sample-data caveat for a fresh clone (read before step 1):** `backend/models/*.onnx` are
-gitignored and NOT DVC-tracked (no `.dvc` pointer exists for them -- their registry-of-record is
-W&B artifacts, which are only in the local offline `wandb/offline-run-*` dirs right now, not yet
-synced anywhere network-reachable -- see the DVC remote setup above and README's "Data / model
-provenance" section). `backend/samples/*/video.mp4` ARE DVC-tracked but need `dvc push` (above)
-before anyone else can `dvc pull` them. **Render builds from a fresh git clone of whatever you
-push** -- if you push to GitHub and create the Render blueprint before doing something about
-models/samples recoverability, Render's build will succeed (the Dockerfile doesn't require these
-files to exist) but the deployed app will 404 on `/api/samples` and fail real uploads (no
-`.onnx` models to run inference with). Before deploying for real, either: (a) sync W&B + push DVC
-and add real pull steps to the Dockerfile in a follow-up, or (b) as a stopgap, temporarily commit
-the `.onnx`/sample-video files directly to the branch you deploy from (small enough: models total
-~600KB, but sample videos are ~70-100MB each -- check GitHub's size limits before doing this).
+**Model/sample-data status (RESOLVED for deploy):** as of the GitHub push, the demo is
+self-contained in git and needs no `dvc pull` at build time:
+- `backend/models/*.onnx` (~600 KB) are committed directly to git.
+- `backend/samples/*/video.mp4` are committed directly to git, re-encoded to 480p (~13 MB total,
+  fps and frame count preserved so the skeleton overlay stays aligned); the per-sample DVC
+  pointers were removed in favor of plain git tracking.
+So a fresh clone / Render build has everything it needs to serve `/api/samples` with video and to
+run inference. The W&B `wandb sync` and `dvc push` steps below remain OPTIONAL polish (public
+training curves; cloud backup of the training data) -- they are no longer deploy blockers.
