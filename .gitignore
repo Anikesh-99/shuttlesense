@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 backend/models/*
 !backend/models/manifest.json
+!backend/models/*.onnx
 training/data/**
 !training/data/**/
 !training/data/**/*.dvc
